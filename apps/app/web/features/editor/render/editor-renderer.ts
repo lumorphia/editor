@@ -3,7 +3,7 @@ import type { EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";
 
-export type ExportFormat = "image/webp" | "image/jpeg";
+export type ExportFormat = "image/webp" | "image/jpeg" | "image/png";
 
 export type ExportOptions = {
   format?: ExportFormat;
