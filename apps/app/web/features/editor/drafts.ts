@@ -22,6 +22,7 @@ export type PendingExport = {
 };
 
 export const DRAFT_LIMIT = 5;
+export const PENDING_EXPORT_LIMIT = 5;
 const PENDING_KEY = "pending";
 
 const store = () => createStore("prismtone-editor", "kv");
@@ -59,13 +60,39 @@ export async function deleteDraft(id: string): Promise<void> {
   await del(`draft:${id}`, store());
 }
 
-export async function setPendingExport(p: PendingExport): Promise<void> {
-  await set(PENDING_KEY, p, store());
+export function addToPendingExports(
+  current: readonly PendingExport[],
+  next: PendingExport,
+): PendingExport[] {
+  const existing = current.findIndex((item) => item.draftId === next.draftId);
+  if (existing >= 0) return current.map((item, index) => (index === existing ? next : item));
+  if (current.length >= PENDING_EXPORT_LIMIT) {
+    throw new Error(`投稿画像は ${PENDING_EXPORT_LIMIT} 枚までです`);
+  }
+  return [...current, next];
 }
 
-export async function takePendingExport(): Promise<PendingExport | undefined> {
+/** 旧版の単一オブジェクトも配列へ読み替える。 */
+export async function listPendingExports(): Promise<PendingExport[]> {
   const s = store();
-  const p = await get<PendingExport>(PENDING_KEY, s);
-  if (p) await del(PENDING_KEY, s);
-  return p;
+  const value = await get<PendingExport | PendingExport[]>(PENDING_KEY, s);
+  if (!value) return [];
+  return Array.isArray(value) ? value.slice(0, PENDING_EXPORT_LIMIT) : [value];
+}
+
+export async function setPendingExports(items: readonly PendingExport[]): Promise<void> {
+  if (items.length > PENDING_EXPORT_LIMIT) {
+    throw new Error(`投稿画像は ${PENDING_EXPORT_LIMIT} 枚までです`);
+  }
+  const s = store();
+  if (items.length === 0) await del(PENDING_KEY, s);
+  else await set(PENDING_KEY, [...items], s);
+}
+
+export async function addPendingExport(next: PendingExport): Promise<void> {
+  await setPendingExports(addToPendingExports(await listPendingExports(), next));
+}
+
+export async function clearPendingExports(): Promise<void> {
+  await del(PENDING_KEY, store());
 }
