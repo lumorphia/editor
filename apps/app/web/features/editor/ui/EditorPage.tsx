@@ -4,7 +4,7 @@ import type { EditRecipe } from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo } from "../history.ts";
 import { ImageLoadError, loadImageFile } from "../load-image.ts";
-import { saveDraft, setPendingExport } from "../drafts.ts";
+import { addPendingExport, saveDraft } from "../drafts.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
 import { AdjustPanel } from "./AdjustPanel.tsx";
@@ -179,10 +179,13 @@ export function EditorPage() {
     if (!state.source || !state.draftId) return;
     try {
       const blob = await exportBlob(recipe);
-      await setPendingExport({ draftId: state.draftId, blob, recipe, createdAt: Date.now() });
+      await addPendingExport({ draftId: state.draftId, blob, recipe, createdAt: Date.now() });
       void navigate("/edit/post");
-    } catch {
-      dispatch({ type: "ui/error", error: "書き出しに失敗しました。" });
+    } catch (error) {
+      dispatch({
+        type: "ui/error",
+        error: error instanceof Error ? error.message : "書き出しに失敗しました。",
+      });
     }
   };
 
