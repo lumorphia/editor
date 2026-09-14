@@ -31,11 +31,7 @@ export function Slider({
   const text = format ? format(value) : String(value);
   return (
     <div className="grid grid-cols-[6.5rem_1fr_3.5rem] items-center gap-2 text-sm">
-      <label
-        htmlFor={id}
-        className="truncate text-zinc-600 dark:text-zinc-400"
-        onDoubleClick={onReset}
-      >
+      <label htmlFor={id} className="truncate text-ink-muted" onDoubleClick={onReset}>
         {label}
       </label>
       <input
@@ -46,7 +42,7 @@ export function Slider({
         step={step}
         value={value}
         aria-valuetext={text}
-        className="accent-zinc-900 dark:accent-zinc-100"
+        className="accent-accent"
         onChange={(e) => onPreview(Number(e.currentTarget.value))}
         onPointerUp={(e) => onCommit(Number(e.currentTarget.value))}
         onKeyDown={(e) => {
