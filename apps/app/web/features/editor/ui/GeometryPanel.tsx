@@ -22,7 +22,7 @@ const ASPECT_LABEL: Record<(typeof ASPECT_PRESETS)[number], string> = {
 };
 
 const btn =
-  "rounded border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900 aria-pressed:bg-zinc-900 aria-pressed:text-white dark:aria-pressed:bg-zinc-100 dark:aria-pressed:text-zinc-900";
+  "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover aria-pressed:bg-accent aria-pressed:text-accent-ink";
 
 export function GeometryPanel({
   geometry,
@@ -66,7 +66,7 @@ export function GeometryPanel({
         onReset={() => onCommit({ straighten: 0 })}
       />
       <div>
-        <p className="mb-1 text-sm text-zinc-600 dark:text-zinc-400">アスペクト比</p>
+        <p className="mb-1 text-sm text-ink-muted">アスペクト比</p>
         <div className="flex flex-wrap gap-1.5">
           {ASPECT_PRESETS.map((a) => (
             <button

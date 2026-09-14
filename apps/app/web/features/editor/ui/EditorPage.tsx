@@ -19,10 +19,9 @@ const ERROR_TEXT: Record<string, string> = {
   webgl: "このブラウザでは編集機能を使えません (WebGL が無効です)。",
 };
 
-const tabBtn =
-  "px-3 py-1.5 text-sm border-b-2 border-transparent aria-selected:border-zinc-900 dark:aria-selected:border-zinc-100";
+const tabBtn = "px-3 py-1.5 text-sm border-b-2 border-transparent aria-selected:border-accent";
 const toolBtn =
-  "rounded border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent dark:border-zinc-800 dark:hover:bg-zinc-900";
+  "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
 /** Playwright からレシピ適用結果の画素を読むためのフック。E2E フラグがあるときだけ露出する。 */
 function installTestHook(renderer: EditorRenderer) {
@@ -289,11 +288,11 @@ export function EditorPage() {
             onClick={onSave}
             data-testid="save"
           >
-            {state.ui.exporting ? "書き出し中..." : "端末に保存"}
+            {state.ui.exporting ? "書き出し中…" : "端末に保存"}
           </button>
           <button
             type="button"
-            className={toolBtn + " bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"}
+            className={toolBtn + " bg-accent hover:bg-accent-strong text-accent-ink"}
             disabled={!hasImage || state.ui.exporting}
             onClick={onPost}
           >
@@ -311,7 +310,7 @@ export function EditorPage() {
         <div
           ref={hostRef}
           data-testid="canvas-host"
-          className="relative min-h-0 flex-1 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-900"
+          className="relative min-h-0 flex-1 overflow-hidden rounded bg-surface-muted"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -320,7 +319,7 @@ export function EditorPage() {
           }}
         >
           {!hasImage && (
-            <p className="absolute inset-0 grid place-items-center text-sm text-zinc-500">
+            <p className="absolute inset-0 grid place-items-center text-sm text-ink-muted">
               PNG / JPEG をドロップするか「画像を開く」を押してください
             </p>
           )}
@@ -338,7 +337,7 @@ export function EditorPage() {
       </section>
 
       <aside className="w-full shrink-0 space-y-3 lg:w-80">
-        <div role="tablist" className="flex border-b border-zinc-200 dark:border-zinc-800">
+        <div role="tablist" className="flex border-b border-line-soft">
           {(
             [
               ["presets", "プリセット"],
