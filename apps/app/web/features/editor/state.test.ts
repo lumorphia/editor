@@ -68,3 +68,15 @@ describe("editorReducer", () => {
     expect(s.draftId).toBe("d2");
   });
 });
+
+describe("compare slider", () => {
+  it("境界は 0..1 に収め、切り抜きを始めると比較を切る", () => {
+    let s = editorReducer(initialEditorState, { type: "ui/compare", on: true });
+    s = editorReducer(s, { type: "ui/compare-position", position: 1.7 });
+    expect(s.ui.comparePosition).toBe(1);
+    s = editorReducer(s, { type: "ui/compare-position", position: -0.2 });
+    expect(s.ui.comparePosition).toBe(0);
+    s = editorReducer(s, { type: "ui/cropping", on: true });
+    expect(s.ui.comparing).toBe(false);
+  });
+});

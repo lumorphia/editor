@@ -20,6 +20,8 @@ export type EditorState = {
   readonly ui: {
     readonly tool: Tool;
     readonly comparing: boolean;
+    /** 比較スライダーの境界 (0..1)。左が元画像、右が現像後 */
+    readonly comparePosition: number;
     readonly cropping: boolean;
     readonly exporting: boolean;
     readonly error: string | null;
@@ -39,6 +41,7 @@ export type EditorAction =
   | { type: "history/redo" }
   | { type: "ui/tool"; tool: Tool }
   | { type: "ui/compare"; on: boolean }
+  | { type: "ui/compare-position"; position: number }
   | { type: "ui/cropping"; on: boolean }
   | { type: "ui/exporting"; on: boolean }
   | { type: "ui/error"; error: string | null };
@@ -48,7 +51,14 @@ export const initialEditorState: EditorState = {
   draftId: null,
   history: createHistory(DEFAULT_RECIPE),
   dragBase: null,
-  ui: { tool: "presets", comparing: false, cropping: false, exporting: false, error: null },
+  ui: {
+    tool: "presets",
+    comparing: false,
+    comparePosition: 0.5,
+    cropping: false,
+    exporting: false,
+    error: null,
+  },
 };
 
 const withAdjust = (r: EditRecipe, key: keyof AdjustV1, value: number): EditRecipe => ({
@@ -114,8 +124,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, ui: { ...state.ui, tool: action.tool } };
     case "ui/compare":
       return { ...state, ui: { ...state.ui, comparing: action.on } };
+    case "ui/compare-position":
+      return {
+        ...state,
+        ui: { ...state.ui, comparePosition: Math.min(1, Math.max(0, action.position)) },
+      };
     case "ui/cropping":
-      return { ...state, ui: { ...state.ui, cropping: action.on } };
+      // 切り抜き中は座標が合わないので比較を切る (docs: #40)
+      return { ...state, ui: { ...state.ui, cropping: action.on, comparing: false } };
     case "ui/exporting":
       return { ...state, ui: { ...state.ui, exporting: action.on } };
     case "ui/error":
