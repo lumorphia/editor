@@ -24,6 +24,7 @@ export type PendingExport = {
 export const DRAFT_LIMIT = 5;
 export const PENDING_EXPORT_LIMIT = 5;
 const PENDING_KEY = "pending";
+const POST_FORM_KEY = "post-form";
 
 const store = () => createStore("prismtone-editor", "kv");
 
@@ -35,12 +36,30 @@ export async function saveDraft(draft: Draft): Promise<void> {
   );
   if (all.length > DRAFT_LIMIT) {
     const drafts = await Promise.all(all.map((k) => get<Draft>(k, s)));
-    const stale = drafts
-      .filter((d): d is Draft => Boolean(d))
-      .sort((a, b) => a.updatedAt - b.updatedAt)
-      .slice(0, drafts.length - DRAFT_LIMIT);
-    await Promise.all(stale.map((d) => del(`draft:${d.id}`, s)));
+    const pending = await listPendingExports();
+    for (const d of selectStaleDrafts(
+      drafts.filter((d): d is Draft => Boolean(d)),
+      pending.map((p) => p.draftId),
+    ))
+      await del(`draft:${d.id}`, s);
   }
+}
+
+/**
+ * 上限を超えた分だけ古い順に消す候補。投稿画像として残っている下書きは「現像をやり直す」(#64) の元なので消さない。
+ * 保護した分で上限を超えることはある (両方の上限が 5 なので最大 5 件残る)。
+ */
+export function selectStaleDrafts(
+  drafts: readonly Draft[],
+  protectedIds: readonly string[],
+): Draft[] {
+  const keep = new Set(protectedIds);
+  const excess = drafts.length - DRAFT_LIMIT;
+  if (excess <= 0) return [];
+  return [...drafts]
+    .filter((d) => !keep.has(d.id))
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+    .slice(0, excess);
 }
 
 export async function loadDraft(id: string): Promise<Draft | undefined> {
@@ -95,4 +114,32 @@ export async function addPendingExport(next: PendingExport): Promise<void> {
 
 export async function clearPendingExports(): Promise<void> {
   await del(PENDING_KEY, store());
+}
+
+/**
+ * 投稿設定の入力内容の端末内下書き (#57)。書き出した画像 (pending) と同じ場所に置き、
+ * 投稿の完了と「すべて破棄」(#58) で消す。装備は ItemSummary ごと保存する (structured clone 可)。
+ */
+export type PostFormDraft = {
+  title: string;
+  description: string;
+  tags: string;
+  visibility: "public" | "unlisted" | "private";
+  characterId: string | null;
+  itemsVisibility: "public" | "private";
+  equipment: unknown[];
+  profile: { job: string | null; race: string | null; clan: string | null; gender: string | null };
+  updatedAt: number;
+};
+
+export async function loadPostFormDraft(): Promise<PostFormDraft | undefined> {
+  return get<PostFormDraft>(POST_FORM_KEY, store());
+}
+
+export async function savePostFormDraft(draft: PostFormDraft): Promise<void> {
+  await set(POST_FORM_KEY, draft, store());
+}
+
+export async function clearPostFormDraft(): Promise<void> {
+  await del(POST_FORM_KEY, store());
 }

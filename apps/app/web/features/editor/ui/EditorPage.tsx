@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import type { EditRecipe } from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile } from "../load-image.ts";
-import { addPendingExport, saveDraft } from "../drafts.ts";
+import { addPendingExport, loadDraft, saveDraft } from "../drafts.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
 import { AdjustPanel } from "./AdjustPanel.tsx";
@@ -49,6 +49,7 @@ function installTestHook(renderer: EditorRenderer) {
 export function EditorPage() {
   const [state, dispatch] = useReducer(editorReducer, initialEditorState);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const hostRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<EditorRenderer | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -122,14 +123,19 @@ export function EditorPage() {
     });
   }, [state.source, state.draftId, recipe, state]);
 
-  const openFile = useCallback(async (file: File) => {
+  const openFile = useCallback(async (file: File, draft?: { id: string; recipe: EditRecipe }) => {
     try {
       const image = await loadImageFile(file);
-      const draftId = crypto.randomUUID();
+      const draftId = draft?.id ?? crypto.randomUUID();
       const r = rendererRef.current;
-      dispatch({ type: "image/loaded", image, draftId });
+      dispatch({
+        type: "image/loaded",
+        image,
+        draftId,
+        ...(draft ? { recipe: draft.recipe } : {}),
+      });
       if (r) {
-        r.setImage(image.bitmap, initialEditorState.history.present);
+        r.setImage(image.bitmap, draft?.recipe ?? initialEditorState.history.present);
         setView(r.viewRect);
       }
     } catch (e) {
@@ -137,6 +143,39 @@ export function EditorPage() {
       dispatch({ type: "image/failed", error: ERROR_TEXT[reason] ?? reason });
     }
   }, []);
+
+  // /edit?draft=<id>: 投稿設定の「現像をやり直す」(#64)。下書きの原本とレシピを開き直し、同じ draftId で書き出す
+  const requestedDraft = searchParams.get("draft");
+  useEffect(() => {
+    if (!requestedDraft) return;
+    let cancelled = false;
+    void loadDraft(requestedDraft).then((draft) => {
+      if (cancelled) return;
+      // 1 回きり。リロードで再適用されないよう URL から外す
+      setSearchParams(
+        (sp) => {
+          sp.delete("draft");
+          return sp;
+        },
+        { replace: true },
+      );
+      if (!draft) {
+        dispatch({
+          type: "ui/error",
+          error: "元の画像が端末に残っていないため、もう一度画像を選んでください。",
+        });
+        return;
+      }
+      void openFile(new File([draft.blob], draft.name, { type: draft.blob.type }), {
+        id: draft.id,
+        recipe: draft.recipe,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // openFile は安定、setSearchParams は毎回変わるので依存から外す (react-hooks の lint は入れていない)
+  }, [requestedDraft]);
 
   // 画像が後から来た場合 (レンダラ初期化前に読み込んだ) の反映
   useEffect(() => {
