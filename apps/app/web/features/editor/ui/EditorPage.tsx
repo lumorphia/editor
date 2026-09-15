@@ -11,6 +11,7 @@ import { AdjustPanel } from "./AdjustPanel.tsx";
 import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
 import { CropOverlay } from "./CropOverlay.tsx";
+import { CompareSlider } from "./CompareSlider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
   too_large: "30MB を超える画像は読み込めません。",
@@ -93,8 +94,8 @@ export function EditorPage() {
   }, [recipe, state.source]);
 
   useEffect(() => {
-    rendererRef.current?.setCompare(state.ui.comparing);
-  }, [state.ui.comparing]);
+    rendererRef.current?.setCompare(state.ui.comparing, state.ui.comparePosition);
+  }, [state.ui.comparing, state.ui.comparePosition]);
 
   // リサイズで枠位置を追従
   useEffect(() => {
@@ -248,13 +249,13 @@ export function EditorPage() {
           </button>
           <button
             type="button"
-            className={toolBtn}
-            disabled={!hasImage}
-            onPointerDown={() => dispatch({ type: "ui/compare", on: true })}
-            onPointerUp={() => dispatch({ type: "ui/compare", on: false })}
-            onPointerLeave={() => dispatch({ type: "ui/compare", on: false })}
+            className={toolBtn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
+            disabled={!hasImage || state.ui.cropping}
+            aria-pressed={state.ui.comparing}
+            onClick={() => dispatch({ type: "ui/compare", on: !state.ui.comparing })}
+            data-testid="compare-toggle"
           >
-            比較 (長押し)
+            比較
           </button>
           <button
             type="button"
@@ -322,6 +323,13 @@ export function EditorPage() {
             <p className="absolute inset-0 grid place-items-center text-sm text-ink-muted">
               PNG / JPEG をドロップするか「画像を開く」を押してください
             </p>
+          )}
+          {hasImage && state.ui.comparing && !state.ui.cropping && (
+            <CompareSlider
+              view={view}
+              position={state.ui.comparePosition}
+              onChange={(position) => dispatch({ type: "ui/compare-position", position })}
+            />
           )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
             <CropOverlay

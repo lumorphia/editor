@@ -1,4 +1,4 @@
-import { Application, Container, Rectangle, Sprite, Texture } from "pixi.js";
+import { Application, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 import type { EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";
@@ -31,10 +31,16 @@ export class EditorRenderer {
   private readonly stage = new Container();
   private readonly image = new Container();
   private sprite: Sprite | null = null;
+  /** 比較用の元画像 (フィルタなし)。sprite の下に同じ変換で置き、比較中だけ見せる */
+  private original: Sprite | null = null;
+  /** 比較中、現像後 (sprite) を境界より右だけに見せるマスク */
+  private compareMask: Graphics | null = null;
   private filter: AdjustFilter | null = null;
   private source: Size = { width: 1, height: 1 };
   private geometry: GeometryV1 | null = null;
   private comparing = false;
+  /** 比較の境界。0 = 全部現像後、1 = 全部元画像 (左が元画像、右が現像後) */
+  private comparePosition = 0.5;
   private resizeObserver: ResizeObserver | null = null;
 
   static async create(host: HTMLElement): Promise<EditorRenderer> {
@@ -63,6 +69,11 @@ export class EditorRenderer {
   setImage(bitmap: ImageBitmap, recipe: EditRecipe): void {
     this.clearImage();
     const texture = Texture.from(bitmap);
+    const original = new Sprite(texture);
+    original.anchor.set(0.5);
+    original.visible = false;
+    this.original = original;
+    this.image.addChild(original);
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
     this.sprite = sprite;
@@ -74,6 +85,15 @@ export class EditorRenderer {
   }
 
   private clearImage(): void {
+    if (this.compareMask) {
+      this.compareMask.destroy();
+      this.compareMask = null;
+    }
+    if (this.original) {
+      this.image.removeChild(this.original);
+      this.original.destroy();
+      this.original = null;
+    }
     if (this.sprite) {
       this.image.removeChild(this.sprite);
       this.sprite.destroy({ texture: true, textureSource: true });
@@ -88,15 +108,44 @@ export class EditorRenderer {
     this.filter.setAdjust(recipe.adjust);
     this.geometry = recipe.geometry;
     const size = canvasSize(this.source, recipe.geometry);
-    this.sprite.rotation = (totalRotationDeg(recipe.geometry) * Math.PI) / 180;
-    this.sprite.scale.set(recipe.geometry.flipH ? -1 : 1, 1);
-    this.sprite.position.set(size.width / 2, size.height / 2);
+    for (const target of [this.sprite, this.original]) {
+      if (!target) continue;
+      target.rotation = (totalRotationDeg(recipe.geometry) * Math.PI) / 180;
+      target.scale.set(recipe.geometry.flipH ? -1 : 1, 1);
+      target.position.set(size.width / 2, size.height / 2);
+    }
     this.fit();
+    this.applyCompare();
   }
 
-  setCompare(on: boolean): void {
+  /** 比較のオン・オフと境界の位置。左が元画像、右が現像後 */
+  setCompare(on: boolean, position: number = this.comparePosition): void {
     this.comparing = on;
-    if (this.sprite) this.sprite.filters = on || !this.filter ? [] : [this.filter];
+    this.comparePosition = Math.min(1, Math.max(0, position));
+    this.applyCompare();
+  }
+
+  private applyCompare(): void {
+    if (!this.sprite || !this.original) return;
+    if (!this.comparing) {
+      this.original.visible = false;
+      this.sprite.mask = null;
+      this.compareMask?.destroy();
+      this.compareMask = null;
+      return;
+    }
+    const size = this.canvasSize;
+    const x = size.width * this.comparePosition;
+    if (!this.compareMask) {
+      this.compareMask = new Graphics();
+      this.image.addChild(this.compareMask);
+    }
+    this.compareMask
+      .clear()
+      .rect(x, 0, Math.max(0, size.width - x), size.height)
+      .fill(0xffffff);
+    this.sprite.mask = this.compareMask;
+    this.original.visible = true;
   }
 
   /** 幾何適用後のキャンバスサイズ (crop 前)。DOM の crop 枠の基準になる。 */

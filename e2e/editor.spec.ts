@@ -168,6 +168,38 @@ test.describe("editor", () => {
     );
   });
 
+  test("compare slider toggles, moves by drag and keyboard, and turns off while cropping", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    await page.getByRole("button", { name: "モノクロ" }).click();
+    const toggle = page.getByTestId("compare-toggle");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    const slider = page.getByTestId("compare-slider");
+    await expect(slider).toBeVisible();
+
+    // ドラッグで境界が動く
+    const box = (await slider.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.5, { steps: 5 });
+    await page.mouse.up();
+    const range = page.getByTestId("compare-range");
+    expect(Number(await range.inputValue())).toBeGreaterThan(700);
+
+    // キーボードでも動く
+    await range.focus();
+    await page.keyboard.press("ArrowLeft");
+    expect(Number(await range.inputValue())).toBeLessThan(800);
+
+    // 切り抜きを始めると比較は切れ、ボタンも押せない
+    await page.getByRole("tab", { name: "幾何" }).click();
+    await page.getByRole("button", { name: "トリミング", exact: true }).click();
+    await expect(slider).toHaveCount(0);
+    await expect(toggle).toBeDisabled();
+  });
+
   test("save downloads an image file", async ({ page }) => {
     await openEditorWithImage(page);
     const download = page.waitForEvent("download");
