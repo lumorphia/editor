@@ -8,7 +8,9 @@ import {
   HISTORY_LIMIT,
   preview,
   redo,
+  redoLabel,
   undo,
+  undoLabel,
 } from "./history.ts";
 
 const withExposure = (r: EditRecipe, exposure: number): EditRecipe => ({
@@ -73,5 +75,25 @@ describe("history", () => {
     expect(h0.past).toEqual([]);
     expect(h0.present).toBe(DEFAULT_RECIPE);
     expect(h1.past).not.toBe(h0.past);
+  });
+});
+
+describe("history labels", () => {
+  it("commit の操作名が undo / redo で行き来する", () => {
+    let h = createHistory(DEFAULT_RECIPE);
+    h = commit(h, withExposure(DEFAULT_RECIPE, 1), "露光量 +1.00");
+    h = commit(h, withExposure(DEFAULT_RECIPE, 2), "露光量 +2.00");
+    expect(undoLabel(h)).toBe("露光量 +2.00");
+    expect(redoLabel(h)).toBeNull();
+    h = undo(h);
+    expect(undoLabel(h)).toBe("露光量 +1.00");
+    expect(redoLabel(h)).toBe("露光量 +2.00");
+    h = redo(h);
+    expect(undoLabel(h)).toBe("露光量 +2.00");
+    // 新しい commit で future の名前も消える
+    h = undo(h);
+    h = commit(h, withExposure(DEFAULT_RECIPE, 3), "露光量 +3.00");
+    expect(redoLabel(h)).toBeNull();
+    expect(h.pastLabels).toEqual(["露光量 +1.00", "露光量 +3.00"]);
   });
 });

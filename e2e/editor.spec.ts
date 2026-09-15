@@ -145,24 +145,29 @@ test.describe("editor", () => {
 
   test("preset, undo, redo and reset drive the UI", async ({ page }) => {
     await openEditorWithImage(page);
-    await page.getByRole("button", { name: "モノクロ" }).click();
-    await expect(page.getByRole("button", { name: "モノクロ" })).toHaveAttribute(
+    await page.getByRole("button", { name: "モノクロ", exact: true }).click();
+    await expect(page.getByRole("button", { name: "モノクロ", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    await expect(page.getByRole("button", { name: "取り消し" })).toBeEnabled();
-    await page.getByRole("button", { name: "取り消し" }).click();
-    await expect(page.getByRole("button", { name: "モノクロ" })).toHaveAttribute(
+    await expect(page.getByTestId("history-undo")).toBeEnabled();
+    await expect(page.getByTestId("history-undo")).toHaveAttribute(
+      "title",
+      "プリセット: モノクロ を取り消す (Ctrl+Z)",
+    );
+    await expect(page.getByTestId("history-last")).toContainText("プリセット: モノクロ");
+    await page.getByTestId("history-undo").click();
+    await expect(page.getByRole("button", { name: "モノクロ", exact: true })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
-    await page.getByRole("button", { name: "やり直し" }).click();
-    await expect(page.getByRole("button", { name: "モノクロ" })).toHaveAttribute(
+    await page.getByTestId("history-redo").click();
+    await expect(page.getByRole("button", { name: "モノクロ", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
     await page.getByRole("button", { name: "全リセット" }).click();
-    await expect(page.getByRole("button", { name: "モノクロ" })).toHaveAttribute(
+    await expect(page.getByRole("button", { name: "モノクロ", exact: true })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -172,7 +177,7 @@ test.describe("editor", () => {
     page,
   }) => {
     await openEditorWithImage(page);
-    await page.getByRole("button", { name: "モノクロ" }).click();
+    await page.getByRole("button", { name: "モノクロ", exact: true }).click();
     const toggle = page.getByTestId("compare-toggle");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");

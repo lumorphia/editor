@@ -1,4 +1,5 @@
 import type { AdjustV1 } from "@prismtone/shared/recipe";
+import { ADJUST_LABELS } from "../labels.ts";
 import { Slider } from "./Slider.tsx";
 
 type Props = {
@@ -15,14 +16,14 @@ const ROWS: {
   step: number;
   ev?: boolean;
 }[] = [
-  { key: "exposure", label: "露光量", min: -5, max: 5, step: 0.05, ev: true },
-  { key: "contrast", label: "コントラスト", min: -100, max: 100, step: 1 },
-  { key: "highlights", label: "ハイライト", min: -100, max: 100, step: 1 },
-  { key: "shadows", label: "シャドウ", min: -100, max: 100, step: 1 },
-  { key: "temperature", label: "色温度", min: -100, max: 100, step: 1 },
-  { key: "tint", label: "色かぶり", min: -100, max: 100, step: 1 },
-  { key: "vibrance", label: "自然な彩度", min: -100, max: 100, step: 1 },
-  { key: "saturation", label: "彩度", min: -100, max: 100, step: 1 },
+  { key: "exposure", label: ADJUST_LABELS.exposure, min: -5, max: 5, step: 0.05, ev: true },
+  { key: "contrast", label: ADJUST_LABELS.contrast, min: -100, max: 100, step: 1 },
+  { key: "highlights", label: ADJUST_LABELS.highlights, min: -100, max: 100, step: 1 },
+  { key: "shadows", label: ADJUST_LABELS.shadows, min: -100, max: 100, step: 1 },
+  { key: "temperature", label: ADJUST_LABELS.temperature, min: -100, max: 100, step: 1 },
+  { key: "tint", label: ADJUST_LABELS.tint, min: -100, max: 100, step: 1 },
+  { key: "vibrance", label: ADJUST_LABELS.vibrance, min: -100, max: 100, step: 1 },
+  { key: "saturation", label: ADJUST_LABELS.saturation, min: -100, max: 100, step: 1 },
 ];
 
 export function AdjustPanel({ adjust, onPreview, onCommit }: Props) {

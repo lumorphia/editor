@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { EditRecipe } from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState } from "../state.ts";
-import { canRedo, canUndo } from "../history.ts";
+import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile } from "../load-image.ts";
 import { addPendingExport, saveDraft } from "../drafts.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
@@ -224,6 +224,10 @@ export function EditorPage() {
   }, []);
 
   const hasImage = Boolean(state.source);
+  const lastOp = undoLabel(state.history);
+  const nextOp = redoLabel(state.history);
+  const undoTitle = lastOp ? `${lastOp} を取り消す (Ctrl+Z)` : "取り消す操作はありません";
+  const redoTitle = nextOp ? `${nextOp} をやり直す (Ctrl+Shift+Z)` : "やり直す操作はありません";
   const canvasRatio = rendererRef.current
     ? rendererRef.current.canvasSize.width / rendererRef.current.canvasSize.height
     : 1;
@@ -262,17 +266,28 @@ export function EditorPage() {
             className={toolBtn}
             disabled={!canUndo(state.history)}
             onClick={() => dispatch({ type: "history/undo" })}
+            title={undoTitle}
+            aria-label={undoTitle}
+            data-testid="history-undo"
           >
-            取り消し
+            <span aria-hidden="true">←</span> 戻る
           </button>
           <button
             type="button"
             className={toolBtn}
             disabled={!canRedo(state.history)}
             onClick={() => dispatch({ type: "history/redo" })}
+            title={redoTitle}
+            aria-label={redoTitle}
+            data-testid="history-redo"
           >
-            やり直し
+            進む <span aria-hidden="true">→</span>
           </button>
+          {lastOp && (
+            <span className="hidden text-xs text-ink-muted md:inline" data-testid="history-last">
+              最後の操作: {lastOp}
+            </span>
+          )}
           <button
             type="button"
             className={toolBtn}

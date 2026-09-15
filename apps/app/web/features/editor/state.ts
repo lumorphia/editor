@@ -7,6 +7,7 @@ import {
   type GeometryV1,
 } from "@prismtone/shared/recipe";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
+import { adjustLabel, geometryLabel } from "./labels.ts";
 import type { LoadedImage } from "./load-image.ts";
 
 export type Tool = "adjust" | "geometry" | "presets";
@@ -96,7 +97,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       // ドラッグ中の preview は履歴に積まない。ドラッグ開始時点 (dragBase) を積む
       const base = state.dragBase ?? history.present;
       const next = withAdjust(base, action.key, action.value);
-      return { ...state, dragBase: null, history: commit({ ...history, present: base }, next) };
+      return {
+        ...state,
+        dragBase: null,
+        history: commit({ ...history, present: base }, next, adjustLabel(action.key, action.value)),
+      };
     }
     case "geometry/preview":
       return {
@@ -107,15 +112,26 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "geometry/commit": {
       const base = state.dragBase ?? history.present;
       const next = withGeometry(base, action.patch);
-      return { ...state, dragBase: null, history: commit({ ...history, present: base }, next) };
+      return {
+        ...state,
+        dragBase: null,
+        history: commit({ ...history, present: base }, next, geometryLabel(action.patch)),
+      };
     }
     case "preset/apply": {
       const preset = findPreset(action.id);
       if (!preset) return state;
-      return { ...state, history: commit(history, applyPreset(history.present, preset)) };
+      return {
+        ...state,
+        history: commit(
+          history,
+          applyPreset(history.present, preset),
+          `プリセット: ${preset.name}`,
+        ),
+      };
     }
     case "recipe/reset":
-      return { ...state, history: commit(history, DEFAULT_RECIPE) };
+      return { ...state, history: commit(history, DEFAULT_RECIPE, "全リセット") };
     case "history/undo":
       return { ...state, history: undo(history) };
     case "history/redo":
