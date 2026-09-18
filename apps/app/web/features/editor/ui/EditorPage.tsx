@@ -75,7 +75,9 @@ export function EditorPage() {
         rendererRef.current = renderer;
         setReady(true);
         installTestHook(renderer);
-      } catch {
+      } catch (e) {
+        // 原因を飲み込まない (CSP や WebGL の不調を切り分けられるように)
+        console.error("editor renderer failed", e);
         dispatch({ type: "ui/error", error: ERROR_TEXT.webgl ?? "WebGL error" });
       }
     })();

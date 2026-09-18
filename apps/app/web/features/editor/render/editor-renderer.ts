@@ -1,3 +1,6 @@
+// PixiJS は既定でシェーダーの uniform 同期に new Function (unsafe-eval) を使う。CSP で 'unsafe-eval' を
+// 許さない代わりに、eval を使わない実装へ差し替える (RM-28)。pixi.js より先に読み込む必要がある
+import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 import type { EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
