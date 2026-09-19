@@ -1,4 +1,9 @@
-import type { AdjustV1, GeometryV1 } from "@prismtone/shared/recipe";
+import {
+  LOCAL_PRESETS,
+  type AdjustV1,
+  type GeometryV1,
+  type LocalAdjustmentV2,
+} from "@prismtone/shared/recipe";
 
 /** 補正項目の表示名。AdjustPanel と履歴の操作名で共有する */
 export const ADJUST_LABELS: Readonly<Record<keyof AdjustV1, string>> = {
@@ -27,4 +32,20 @@ export function geometryLabel(patch: Partial<GeometryV1>): string {
   if (patch.aspect !== undefined) return patch.aspect ? `縦横比 ${patch.aspect}` : "縦横比を解除";
   if (patch.crop !== undefined) return patch.crop ? "トリミング" : "トリミングを解除";
   return "幾何の変更";
+}
+
+/**
+ * 投稿詳細の「編集レシピ」に出す部分補正の要約: 「4 件 (瞳強調 ×2、美肌、その他 1)」。
+ * プリセットの並び順で数え、プリセット無しは「その他」。無ければ null
+ */
+export function localAdjustmentsSummary(list: readonly LocalAdjustmentV2[]): string | null {
+  if (list.length === 0) return null;
+  const parts = LOCAL_PRESETS.flatMap((preset) => {
+    const n = list.filter((l) => l.presetId === preset.id).length;
+    return n === 0 ? [] : [n === 1 ? preset.name : `${preset.name} ×${n}`];
+  });
+  const free = list.filter((l) => l.presetId === null).length;
+  if (free > 0 && parts.length > 0) parts.push(`その他 ${free}`);
+  const head = `${list.length} 件`;
+  return parts.length === 0 ? head : `${head} (${parts.join("、")})`;
 }

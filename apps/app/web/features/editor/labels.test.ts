@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { adjustLabel, geometryLabel } from "./labels.ts";
+import { DEFAULT_ELLIPSE_MASK, DEFAULT_LOCAL_ADJUSTMENT } from "@prismtone/shared/recipe";
+import { adjustLabel, geometryLabel, localAdjustmentsSummary } from "./labels.ts";
 
 describe("operation labels", () => {
   it("補正は項目名と符号付きの値", () => {
@@ -14,5 +15,28 @@ describe("operation labels", () => {
     expect(geometryLabel({ aspect: "3:4" })).toBe("縦横比 3:4");
     expect(geometryLabel({ crop: null })).toBe("トリミングを解除");
     expect(geometryLabel({})).toBe("幾何の変更");
+  });
+});
+
+describe("localAdjustmentsSummary (#109)", () => {
+  const local = (presetId: "eyes" | "skin" | "gear" | null) => ({
+    ...DEFAULT_LOCAL_ADJUSTMENT,
+    id: presetId ?? "free",
+    mask: DEFAULT_ELLIPSE_MASK,
+    presetId,
+  });
+
+  it("returns null when there are no local adjustments", () => {
+    expect(localAdjustmentsSummary([])).toBeNull();
+  });
+
+  it("counts by preset in preset order and puts free-form ones last", () => {
+    expect(
+      localAdjustmentsSummary([local(null), local("skin"), local("eyes"), local("eyes")]),
+    ).toBe("4 件 (瞳強調 ×2、美肌、その他 1)");
+  });
+
+  it("omits the breakdown when everything is free-form", () => {
+    expect(localAdjustmentsSummary([local(null)])).toBe("1 件");
   });
 });

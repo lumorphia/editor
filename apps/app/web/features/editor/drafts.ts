@@ -1,5 +1,5 @@
 import { createStore, del, get, keys, set } from "idb-keyval";
-import type { EditRecipe } from "@prismtone/shared/recipe";
+import { migrateRecipe, type EditRecipe } from "@prismtone/shared/recipe";
 
 /**
  * 端末内の下書き (docs/design/04 §6, 03 §9)。原本 Blob とレシピを IndexedDB に置く。
@@ -27,6 +27,32 @@ const PENDING_KEY = "pending";
 const POST_FORM_KEY = "post-form";
 
 const store = () => createStore("prismtone-editor", "kv");
+
+/**
+ * IndexedDB に残っているレシピを現行の版に上げる (docs/design/04 §5)。
+ * 部分補正 (#109) より前に保存した下書きは version 1 なので、読むたびにここで揃える。
+ * 読めないものは null (壊れた下書きは無かったことにする)
+ */
+export function upgradeStoredRecipe(input: unknown): EditRecipe | null {
+  try {
+    return migrateRecipe(input);
+  } catch {
+    return null;
+  }
+}
+
+function upgradeDraft(draft: Draft | undefined): Draft | undefined {
+  if (!draft) return undefined;
+  const recipe = upgradeStoredRecipe(draft.recipe);
+  return recipe ? { ...draft, recipe } : undefined;
+}
+
+function upgradePending(items: readonly PendingExport[]): PendingExport[] {
+  return items.flatMap((item) => {
+    const recipe = upgradeStoredRecipe(item.recipe);
+    return recipe ? [{ ...item, recipe }] : [];
+  });
+}
 
 export async function saveDraft(draft: Draft): Promise<void> {
   const s = store();
@@ -63,7 +89,7 @@ export function selectStaleDrafts(
 }
 
 export async function loadDraft(id: string): Promise<Draft | undefined> {
-  return get<Draft>(`draft:${id}`, store());
+  return upgradeDraft(await get<Draft>(`draft:${id}`, store()));
 }
 
 export async function listDrafts(): Promise<Draft[]> {
@@ -71,7 +97,7 @@ export async function listDrafts(): Promise<Draft[]> {
   const all = (await keys(s)).filter(
     (k): k is string => typeof k === "string" && k.startsWith("draft:"),
   );
-  const drafts = await Promise.all(all.map((k) => get<Draft>(k, s)));
+  const drafts = await Promise.all(all.map((k) => get<Draft>(k, s).then(upgradeDraft)));
   return drafts.filter((d): d is Draft => Boolean(d)).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -96,7 +122,7 @@ export async function listPendingExports(): Promise<PendingExport[]> {
   const s = store();
   const value = await get<PendingExport | PendingExport[]>(PENDING_KEY, s);
   if (!value) return [];
-  return Array.isArray(value) ? value.slice(0, PENDING_EXPORT_LIMIT) : [value];
+  return upgradePending(Array.isArray(value) ? value.slice(0, PENDING_EXPORT_LIMIT) : [value]);
 }
 
 export async function setPendingExports(items: readonly PendingExport[]): Promise<void> {
@@ -173,12 +199,16 @@ export async function listPostDrafts(): Promise<PostDraft[]> {
   const all = (await keys(s)).filter(
     (k): k is string => typeof k === "string" && k.startsWith(POST_DRAFT_PREFIX),
   );
-  const drafts = await Promise.all(all.map((k) => get<PostDraft>(k, s)));
+  const drafts = await Promise.all(all.map((k) => get<PostDraft>(k, s).then(upgradePostDraft)));
   return drafts.filter((d): d is PostDraft => Boolean(d)).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function loadPostDraft(id: string): Promise<PostDraft | undefined> {
-  return get<PostDraft>(`${POST_DRAFT_PREFIX}${id}`, store());
+  return upgradePostDraft(await get<PostDraft>(`${POST_DRAFT_PREFIX}${id}`, store()));
+}
+
+function upgradePostDraft(draft: PostDraft | undefined): PostDraft | undefined {
+  return draft ? { ...draft, images: upgradePending(draft.images) } : undefined;
 }
 
 /** 同じ id は上書き。新規で上限を超えるなら投げる (古いものを勝手に消さない) */
