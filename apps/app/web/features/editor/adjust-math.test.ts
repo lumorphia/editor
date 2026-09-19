@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ADJUST } from "@prismtone/shared/recipe";
-import { applyAdjust, linearToSrgb, srgbToLinear, type RGB } from "./adjust-math.ts";
+import {
+  DEFAULT_ADJUST,
+  DEFAULT_ELLIPSE_MASK,
+  DEFAULT_LOCAL_ADJUST,
+  DEFAULT_LOCAL_ADJUSTMENT,
+  DEFAULT_RECIPE,
+} from "@prismtone/shared/recipe";
+import {
+  applyAdjust,
+  applyLocalAdjust,
+  applyRecipeAt,
+  linearToSrgb,
+  srgbToLinear,
+  type RGB,
+} from "./adjust-math.ts";
 
 const near = (a: number, b: number, eps = 1e-3) => Math.abs(a - b) < eps;
 
@@ -78,5 +91,51 @@ describe("srgb conversions", () => {
     for (const v of [0, 0.01, 0.2, 0.5, 0.9, 1]) {
       expect(near(linearToSrgb(srgbToLinear(v)), v, 1e-6)).toBe(true);
     }
+  });
+});
+
+describe("applyRecipeAt (部分補正の CPU 参照、#109)", () => {
+  const eye = {
+    ...DEFAULT_LOCAL_ADJUSTMENT,
+    id: "eye",
+    mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.25, cy: 0.5, rx: 0.1, ry: 0.2, feather: 0 },
+    adjust: { ...DEFAULT_LOCAL_ADJUST, exposure: 1 },
+  };
+  const size = { width: 200, height: 100 };
+  const px: RGB = [0.3, 0.3, 0.3];
+
+  it("applies the local adjustment fully inside the mask and not at all outside", () => {
+    const recipe = { ...DEFAULT_RECIPE, localAdjustments: [eye] };
+    const inside = applyRecipeAt(px, { x: 0.25, y: 0.5 }, recipe, size);
+    const outside = applyRecipeAt(px, { x: 0.75, y: 0.5 }, recipe, size);
+    expect(inside).toEqual(applyLocalAdjust(px, eye.adjust));
+    expect(outside).toEqual(px);
+  });
+
+  it("blends by amount and skips hidden adjustments", () => {
+    const half = { ...DEFAULT_RECIPE, localAdjustments: [{ ...eye, amount: 50 }] };
+    const out = applyRecipeAt(px, { x: 0.25, y: 0.5 }, half, size);
+    const full = applyLocalAdjust(px, eye.adjust);
+    expect(near(out[0], (px[0] + full[0]) / 2)).toBe(true);
+    const hidden = { ...DEFAULT_RECIPE, localAdjustments: [{ ...eye, visible: false }] };
+    expect(applyRecipeAt(px, { x: 0.25, y: 0.5 }, hidden, size)).toEqual(px);
+  });
+
+  it("applies the global adjust first, then local adjustments in order", () => {
+    const recipe = {
+      ...DEFAULT_RECIPE,
+      adjust: { ...DEFAULT_ADJUST, saturation: -100 },
+      localAdjustments: [eye],
+    };
+    const out = applyRecipeAt([0.9, 0.2, 0.4], { x: 0.25, y: 0.5 }, recipe, size);
+    const expected = applyLocalAdjust(applyAdjust([0.9, 0.2, 0.4], recipe.adjust), eye.adjust);
+    expect(out).toEqual(expected);
+  });
+
+  it("applyLocalAdjust matches applyAdjust with the same values and no vibrance", () => {
+    const local = { ...DEFAULT_LOCAL_ADJUST, exposure: 0.5, contrast: 20, temperature: -30 };
+    expect(applyLocalAdjust(px, local)).toEqual(
+      applyAdjust(px, { ...DEFAULT_ADJUST, exposure: 0.5, contrast: 20, temperature: -30 }),
+    );
   });
 });
