@@ -265,6 +265,9 @@ export function EditorPage() {
   }, []);
 
   const hasImage = Boolean(state.source);
+  // 書き出しはレンダラが要る。画像の読み込みより WebGL の初期化が遅れることがある (CI の headless で顕著) ので、
+  // 準備できるまで押せない
+  const canExport = hasImage && ready && !state.ui.exporting;
   const lastOp = undoLabel(state.history);
   const nextOp = redoLabel(state.history);
   const undoTitle = lastOp ? `${lastOp} を取り消す (Ctrl+Z)` : "取り消す操作はありません";
@@ -341,7 +344,7 @@ export function EditorPage() {
           <button
             type="button"
             className={toolBtn}
-            disabled={!hasImage || state.ui.exporting}
+            disabled={!canExport}
             onClick={onSave}
             data-testid="save"
           >
@@ -350,7 +353,7 @@ export function EditorPage() {
           <button
             type="button"
             className={toolBtn + " bg-accent hover:bg-accent-strong text-accent-ink"}
-            disabled={!hasImage || state.ui.exporting}
+            disabled={!canExport}
             onClick={onPost}
           >
             投稿へ
