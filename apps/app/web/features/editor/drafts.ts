@@ -153,6 +153,8 @@ export type PostFormFields = {
   visibility: "public" | "unlisted" | "private";
   characterId: string | null;
   itemsVisibility: "public" | "private";
+  /** コメントを受け付けるか (#143)。古い下書きには無い */
+  commentsEnabled?: boolean;
   equipment: unknown[];
   profile: { job: string | null; race: string | null; clan: string | null; gender: string | null };
 };
