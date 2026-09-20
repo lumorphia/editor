@@ -18,6 +18,8 @@ type Props = {
   mask: EllipseMaskV2;
   onPreview: (mask: EllipseMaskV2) => void;
   onCommit: (mask: EllipseMaskV2) => void;
+  /** ドラッグしている間 true。範囲の赤い重ねを出すために使う */
+  onDrawing: (on: boolean) => void;
 };
 
 /**
@@ -25,7 +27,15 @@ type Props = {
  * マスクは幾何を掛ける前の画像座標で持つので、画面 (view) との往復は mask-math の変換を通す。
  * 楕円の輪郭は SVG に「画像 px → 画面 px」の行列を掛けて描く (回転・反転にそのまま追従する)。
  */
-export function EllipseMaskOverlay({ view, source, geometry, mask, onPreview, onCommit }: Props) {
+export function EllipseMaskOverlay({
+  view,
+  source,
+  geometry,
+  mask,
+  onPreview,
+  onCommit,
+  onDrawing,
+}: Props) {
   const drag = useRef<{ handle: EllipseHandle; start: EllipseMaskV2; from: Point } | null>(null);
 
   const viewToUv = (clientX: number, clientY: number, host: DOMRect): Point => {
@@ -47,6 +57,7 @@ export function EllipseMaskOverlay({ view, source, geometry, mask, onPreview, on
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     drag.current = { handle, start: mask, from: viewToUv(e.clientX, e.clientY, hostRect(e)) };
+    onDrawing(true);
   };
   const next = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -66,6 +77,7 @@ export function EllipseMaskOverlay({ view, source, geometry, mask, onPreview, on
   const onPointerUp = (e: React.PointerEvent) => {
     const m = next(e);
     drag.current = null;
+    onDrawing(false);
     if (m) onCommit(m);
   };
 

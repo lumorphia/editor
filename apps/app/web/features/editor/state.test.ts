@@ -155,7 +155,7 @@ describe("editorReducer: 部分補正 (#109)", () => {
     s = editorReducer(s, { type: "local/preset", id, presetId: "gear" });
     const local = s.history.present.localAdjustments[0]!;
     expect(local.presetId).toBe("gear");
-    expect(local.adjust.shadows).toBe(30);
+    expect(local.adjust.shadows).toBe(45);
     expect(local.mask).toEqual(mask);
     expect(s.history.pastLabels.at(-1)).toBe("部分補正: 装備強調");
   });
@@ -193,11 +193,14 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(s).toBe(withOne);
   });
 
-  it("ui/show-mask turns the mask overlay on and off without touching the recipe", () => {
-    const off = editorReducer(withOne, { type: "ui/show-mask", on: false });
-    expect(off.ui.local.showMask).toBe(false);
-    expect(off.history).toBe(withOne.history);
-    expect(editorReducer(off, { type: "ui/show-mask", on: true }).ui.local.showMask).toBe(true);
+  it("the mask overlay is off by default, can be pinned on, and is on while drawing", () => {
+    expect(initialEditorState.ui.local.showMask).toBe(false);
+    const on = editorReducer(withOne, { type: "ui/show-mask", on: true });
+    expect(on.ui.local.showMask).toBe(true);
+    expect(on.history).toBe(withOne.history);
+    const drawing = editorReducer(withOne, { type: "ui/drawing", on: true });
+    expect(drawing.ui.local.drawing).toBe(true);
+    expect(editorReducer(drawing, { type: "ui/drawing", on: false }).ui.local.drawing).toBe(false);
   });
 
   it("adds a brush adjustment and appends strokes as one history step each", () => {

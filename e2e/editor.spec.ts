@@ -279,6 +279,45 @@ test.describe("editor", () => {
     await page.mouse.up();
     await expect(page.getByTestId("history-last")).toContainText("ブラシ");
 
+    // 塗っている間だけ範囲が赤く重なり、離すと消えて補正 (露光 +2) だけが見える
+    const view = await page.evaluate(() =>
+      (
+        window as Window & {
+          __prismtoneEditor?: {
+            viewRect: () => { x: number; y: number; width: number; height: number };
+          };
+        }
+      ).__prismtoneEditor!.viewRect(),
+    );
+    const uv = {
+      x: (x0 + 30 - host.x - view.x) / view.width,
+      y: (y - host.y - view.y) / view.height,
+    };
+    const readAt = () =>
+      page.evaluate(
+        (p) =>
+          (
+            window as Window & {
+              __prismtoneEditor?: { previewPixels: (q: { x: number; y: number }[]) => number[][] };
+            }
+          ).__prismtoneEditor!.previewPixels([p])[0]!,
+        uv,
+      );
+    const exposure = page.getByTestId("local-sliders").getByLabel("露光量");
+    await exposure.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
+    // 装備強調の +0.15 に +2.00 が乗る
+    await expect(page.getByTestId("history-last")).toContainText("露光量 +2.15");
+    const released = await readAt();
+    expect(released[1]).toBeGreaterThan(BLOCKS[1]![1]! + 20); // 緑ブロックの上、露光で明るい
+    expect(released[1]).toBeGreaterThan(released[0]!); // 赤く染まっていない (緑が主のまま)
+    await page.mouse.move(x0 + 30, y);
+    await page.mouse.down();
+    const pressed = await readAt();
+    expect(pressed[0]).toBeGreaterThan(released[0]! + 40); // 押している間は赤が乗る
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("ブラシ");
+
     await page.getByRole("button", { name: "消す", exact: true }).click();
     await page.mouse.move(x0, y);
     await page.mouse.down();

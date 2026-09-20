@@ -48,7 +48,10 @@ export type EditorState = {
     /** 部分補正 (#109) の UI 状態。selectedId はレシピに無い id を指すことがある (undo 後) ので、使う側で引き直す */
     readonly local: {
       readonly selectedId: string | null;
+      /** 「範囲を表示」を常時オンにするか。オフでも描いている間 (drawing) は見せる */
       readonly showMask: boolean;
+      /** ブラシで塗っている・円形をドラッグしている間 */
+      readonly drawing: boolean;
       /** ブラシの設定。ストロークごとにレシピへ写す */
       readonly brush: BrushSettings;
     };
@@ -77,6 +80,7 @@ export type EditorAction =
   | { type: "local/preset"; id: string; presetId: LocalPresetId }
   | { type: "local/stroke-commit"; id: string; stroke: BrushStrokeV2 }
   | { type: "ui/show-mask"; on: boolean }
+  | { type: "ui/drawing"; on: boolean }
   | { type: "ui/brush"; brush: BrushSettings }
   | { type: "history/undo" }
   | { type: "history/redo" }
@@ -99,7 +103,12 @@ export const initialEditorState: EditorState = {
     cropping: false,
     exporting: false,
     error: null,
-    local: { selectedId: null, showMask: true, brush: { mode: "add", size: 0.08, hardness: 0.7 } },
+    local: {
+      selectedId: null,
+      showMask: false,
+      drawing: false,
+      brush: { mode: "add", size: 0.08, hardness: 0.7 },
+    },
   },
 };
 
@@ -347,6 +356,8 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case "ui/brush":
       return { ...state, ui: { ...state.ui, local: { ...state.ui.local, brush: action.brush } } };
+    case "ui/drawing":
+      return { ...state, ui: { ...state.ui, local: { ...state.ui.local, drawing: action.on } } };
     case "ui/show-mask":
       return { ...state, ui: { ...state.ui, local: { ...state.ui.local, showMask: action.on } } };
     case "ui/tool":

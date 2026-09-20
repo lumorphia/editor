@@ -34,7 +34,7 @@ export const LOCAL_PRESETS: readonly LocalPreset[] = Object.freeze([
     id: "gear",
     name: "装備強調",
     hint: "見せたい装備をブラシで塗る。暗部を持ち上げ、質感と色を整える",
-    adjust: { shadows: 30, contrast: 10, sharpen: 25, saturation: 5 },
+    adjust: { exposure: 0.15, shadows: 45, contrast: 15, sharpen: 30, saturation: 8 },
     amount: 100,
   },
 ]);

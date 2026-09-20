@@ -117,8 +117,12 @@ export function EditorPage() {
   // 部分補正 (#109): 部分補正タブで選択中の範囲を赤で重ねる
   const selectedLocal =
     recipe.localAdjustments.find((l) => l.id === state.ui.local.selectedId) ?? null;
+  // 赤い重ねは、描いている間 (ブラシ・円形のドラッグ中) か「範囲を表示」をオンにしたときだけ。
+  // 常時だと補正の効きが赤に埋もれて見えない
   const maskPreviewId =
-    state.ui.tool === "local" && state.ui.local.showMask && !state.ui.comparing
+    state.ui.tool === "local" &&
+    (state.ui.local.showMask || state.ui.local.drawing) &&
+    !state.ui.comparing
       ? (selectedLocal?.id ?? null)
       : null;
   useEffect(() => {
@@ -488,6 +492,7 @@ export function EditorPage() {
                 onCommit={(mask) =>
                   dispatch({ type: "local/mask-commit", id: selectedLocal.id, mask })
                 }
+                onDrawing={(on) => dispatch({ type: "ui/drawing", on })}
               />
             )}
           {hasImage &&
@@ -507,6 +512,7 @@ export function EditorPage() {
                 onCommit={(stroke) =>
                   dispatch({ type: "local/stroke-commit", id: selectedLocal.id, stroke })
                 }
+                onDrawing={(on) => dispatch({ type: "ui/drawing", on })}
               />
             )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
