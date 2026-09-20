@@ -14,6 +14,15 @@ import {
 import type { BrushStrokeV2, EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
 import { DevelopStage } from "./develop-stage.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";
+import {
+  clampPan,
+  DEFAULT_VIEWPORT,
+  panBy,
+  place,
+  zoomAt,
+  ZOOM_STEP,
+  type Viewport,
+} from "./viewport.ts";
 
 export type ExportFormat = "image/webp" | "image/jpeg" | "image/png";
 
@@ -80,6 +89,8 @@ export class EditorRenderer {
   /** 比較の境界。0 = 全部現像後、1 = 全部元画像 (左が元画像、右が現像後) */
   private comparePosition = 0.5;
   private resizeObserver: ResizeObserver | null = null;
+  /** 表示のズームと移動。レシピではなく画面の状態 (docs/design/08 §3.3) */
+  private viewport: Viewport = DEFAULT_VIEWPORT;
 
   static async create(host: HTMLElement): Promise<EditorRenderer> {
     const app = new Application();
@@ -91,6 +102,10 @@ export class EditorRenderer {
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       preference: "webgl",
     });
+    // resizeTo が canvas に px の幅・高さを書く。通常フローに置くとその幅が親の最小幅になり、
+    // 窓を狭めても親が縮まない。絶対配置にしてレイアウトに影響させない
+    app.canvas.style.position = "absolute";
+    app.canvas.style.inset = "0";
     host.appendChild(app.canvas);
     const r = new EditorRenderer(app, host);
     app.stage.addChild(r.stage);
@@ -126,6 +141,7 @@ export class EditorRenderer {
     this.original = original;
     this.image.addChild(original);
     this.source = { width: bitmap.width, height: bitmap.height };
+    this.viewport = DEFAULT_VIEWPORT;
     this.develop = new DevelopStage(texture, this.previewSize, recipe);
     const sprite = new Sprite(this.develop.texture);
     sprite.anchor.set(0.5);
@@ -290,16 +306,71 @@ export class EditorRenderer {
     };
   }
 
+  private get hostSize(): Size {
+    return { width: this.host.clientWidth, height: this.host.clientHeight };
+  }
+
+  /** 現在のズームと移動でステージを置く。ホストの寸法が変わったときは移動を抑え直す */
   fit(): void {
     if (!this.sprite) return;
-    const size = this.canvasSize;
-    const w = this.host.clientWidth;
-    const h = this.host.clientHeight;
-    if (w === 0 || h === 0) return;
-    const s = Math.min(w / size.width, h / size.height) * 0.96;
-    this.stage.scale.set(s);
-    this.stage.position.set((w - size.width * s) / 2, (h - size.height * s) / 2);
+    const host = this.hostSize;
+    if (host.width === 0 || host.height === 0) return;
+    this.viewport = clampPan(this.canvasSize, host, this.viewport);
+    const p = place(this.canvasSize, host, this.viewport);
+    this.stage.scale.set(p.scale);
+    this.stage.position.set(p.x, p.y);
   }
+
+  /** 元画像の px に対する表示倍率 (1 = 等倍) */
+  get displayScale(): number {
+    return this.stage.scale.x;
+  }
+
+  get zoom(): number {
+    return this.viewport.zoom;
+  }
+
+  /** 倍率を factor 倍する。anchor (ホスト内の CSS px) の下の点は動かない */
+  zoomBy(factor: number, anchor?: { x: number; y: number }): void {
+    if (!this.sprite) return;
+    this.viewport = zoomAt(
+      this.canvasSize,
+      this.hostSize,
+      this.viewport,
+      this.viewport.zoom * factor,
+      anchor,
+    );
+    this.fit();
+  }
+
+  /** フィット表示に対する倍率を直接指定する (1 = フィット)。anchor はホストの中央 */
+  setZoom(zoom: number): void {
+    if (!this.sprite) return;
+    this.viewport = zoomAt(this.canvasSize, this.hostSize, this.viewport, zoom);
+    this.fit();
+  }
+
+  /** 元画像の等倍 (1 画像 px = 1 CSS px) にする */
+  zoomToActual(): void {
+    if (!this.sprite) return;
+    const fit = place(this.canvasSize, this.hostSize, DEFAULT_VIEWPORT).scale;
+    this.setZoom(1 / fit);
+  }
+
+  resetView(): void {
+    this.viewport = DEFAULT_VIEWPORT;
+    this.fit();
+  }
+
+  /** CSS px だけ表示を動かす */
+  panBy(dx: number, dy: number): void {
+    if (!this.sprite) return;
+    this.viewport = panBy(this.canvasSize, this.hostSize, this.viewport, dx, dy);
+    this.fit();
+  }
+
+  /** ホイール 1 ノッチぶんの倍率 */
+  static readonly ZOOM_STEP = ZOOM_STEP;
 
   async export(recipe: EditRecipe, opts: ExportOptions = {}): Promise<Blob> {
     if (!this.sprite || !this.develop) throw new Error("no image loaded");

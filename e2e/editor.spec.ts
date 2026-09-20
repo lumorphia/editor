@@ -352,6 +352,76 @@ test.describe("editor", () => {
     await expect(page.getByTestId("ellipse-overlay")).toHaveCount(0);
   });
 
+  test("zoom: buttons, ctrl+wheel around the cursor, wheel pan, and fit; overlays follow", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    const viewRect = () =>
+      page.evaluate(() =>
+        (
+          window as Window & {
+            __prismtoneEditor?: { viewRect: () => { x: number; scale: number; width: number } };
+          }
+        ).__prismtoneEditor!.viewRect(),
+      );
+    const fit = await viewRect();
+    await expect(page.getByTestId("zoom-percent")).toHaveText(`${Math.round(fit.scale * 100)}%`);
+
+    await page.getByRole("button", { name: "拡大" }).click();
+    const zoomed = await viewRect();
+    expect(zoomed.scale / fit.scale).toBeCloseTo(1.25, 2);
+    await expect(page.getByTestId("zoom-percent")).toHaveText(`${Math.round(zoomed.scale * 100)}%`);
+
+    // 円形マスクのハンドルは表示に追従する (中心のハンドルは画像の中心 = view の中央)
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await page.getByTestId("local-add-ellipse").click();
+    const handle = page.getByTestId("ellipse-handle-move");
+    const h1 = await handle.boundingBox();
+    // Ctrl + ホイールで画像の左上 (ホストの左上寄り) を軸に拡大 → 中心ハンドルは右下へ動く
+    const host = await page.getByTestId("canvas-host").boundingBox();
+    await page.mouse.move(host!.x + 10, host!.y + 10);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    await expect.poll(async () => (await viewRect()).scale).toBeGreaterThan(zoomed.scale);
+    const h2 = await handle.boundingBox();
+    expect(h2!.x).toBeGreaterThan(h1!.x);
+    expect(h2!.y).toBeGreaterThan(h1!.y);
+
+    // ホイールで移動
+    const before = await viewRect();
+    await page.mouse.wheel(0, 50);
+    await expect.poll(async () => (await viewRect()).x).toBe(before.x);
+    const after = await viewRect();
+    expect(after.scale).toBe(before.scale);
+
+    await page.getByRole("button", { name: "フィット" }).click();
+    await expect.poll(async () => (await viewRect()).scale).toBeCloseTo(fit.scale, 5);
+    // 等倍
+    await page.getByTestId("zoom-percent").click();
+    await expect(page.getByTestId("zoom-percent")).toHaveText("100%");
+  });
+
+  test("shrinking the window keeps the side panel and refits the image", async ({ page }) => {
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await openEditorWithImage(page);
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await expect
+      .poll(async () => {
+        const aside = await page.locator("aside").boundingBox();
+        return aside ? aside.x + aside.width : 0;
+      })
+      .toBeLessThanOrEqual(1100);
+    const host = await page.getByTestId("canvas-host").boundingBox();
+    const view = await page.evaluate(() =>
+      (
+        window as Window & { __prismtoneEditor?: { viewRect: () => { width: number } } }
+      ).__prismtoneEditor!.viewRect(),
+    );
+    expect(view.width).toBeLessThanOrEqual(host!.width);
+    expect(view.width).toBeGreaterThan(host!.width * 0.9);
+  });
+
   test("preset, undo, redo and reset drive the UI", async ({ page }) => {
     await openEditorWithImage(page);
     await page.getByRole("button", { name: "モノクロ", exact: true }).click();
