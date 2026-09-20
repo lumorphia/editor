@@ -53,6 +53,9 @@ function installTestHook(renderer: EditorRenderer) {
     viewRect() {
       return renderer.viewRect;
     },
+    previewPixels(points: { x: number; y: number }[]) {
+      return renderer.previewPixels(points);
+    },
   };
 }
 
@@ -83,6 +86,8 @@ export function EditorPage() {
           return;
         }
         rendererRef.current = renderer;
+        // 置き直し (fit / zoom / resize) はすべてここを通る。オーバーレイの位置の唯一の出どころ
+        renderer.onView = setView;
         setReady(true);
         installTestHook(renderer);
       } catch (e) {
@@ -98,12 +103,11 @@ export function EditorPage() {
     };
   }, []);
 
-  // レシピ変更をレンダラへ反映
+  // レシピ変更をレンダラへ反映 (view は renderer.onView で追従する)
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || !state.source) return;
     r.setRecipe(recipe);
-    setView(r.viewRect);
   }, [recipe, state.source]);
 
   useEffect(() => {
@@ -137,44 +141,16 @@ export function EditorPage() {
       } else {
         r.panBy(-e.deltaX, -e.deltaY);
       }
-      setView(r.viewRect);
     };
     host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
   }, [state.source]);
 
-  const zoomBy = (factor: number) => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.zoomBy(factor);
-    setView(r.viewRect);
-  };
-  const zoomFit = () => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.resetView();
-    setView(r.viewRect);
-  };
-  const zoomActual = () => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.zoomToActual();
-    setView(r.viewRect);
-  };
+  const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
+  const zoomFit = () => rendererRef.current?.resetView();
+  const zoomActual = () => rendererRef.current?.zoomToActual();
   // 表示倍率 (元画像の px に対して)。デバイスの px ではなく CSS px
   const zoomPercent = Math.round(view.scale * 100);
-
-  // リサイズで枠位置を追従
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const ro = new ResizeObserver(() => {
-      const r = rendererRef.current;
-      if (r && state.source) setView(r.viewRect);
-    });
-    ro.observe(host);
-    return () => ro.disconnect();
-  }, [state.source]);
 
   // 下書きを自動保存 (レシピ確定ごと)
   useEffect(() => {
@@ -200,10 +176,7 @@ export function EditorPage() {
         draftId,
         ...(draft ? { recipe: draft.recipe } : {}),
       });
-      if (r) {
-        r.setImage(image.bitmap, draft?.recipe ?? initialEditorState.history.present);
-        setView(r.viewRect);
-      }
+      r?.setImage(image.bitmap, draft?.recipe ?? initialEditorState.history.present);
     } catch (e) {
       const reason = e instanceof ImageLoadError ? e.reason : "decode_failed";
       dispatch({ type: "image/failed", error: ERROR_TEXT[reason] ?? reason });
@@ -246,10 +219,7 @@ export function EditorPage() {
   // 画像が後から来た場合 (レンダラ初期化前に読み込んだ) の反映
   useEffect(() => {
     const r = rendererRef.current;
-    if (ready && r && state.source) {
-      r.setImage(state.source.bitmap, recipe);
-      setView(r.viewRect);
-    }
+    if (ready && r && state.source) r.setImage(state.source.bitmap, recipe);
     // recipe は setRecipe 側の effect で追従するため依存に含めない
   }, [ready, state.source]);
 
