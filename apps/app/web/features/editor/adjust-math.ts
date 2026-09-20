@@ -1,5 +1,6 @@
 import type { AdjustV1, EditRecipe, LocalAdjustV2 } from "@prismtone/shared/recipe";
 import { ellipseMaskValue, type Point } from "./mask-math.ts";
+import { brushMaskValue } from "./brush-raster.ts";
 import type { Size } from "./render/geometry.ts";
 
 /**
@@ -103,13 +104,17 @@ export function applyLocalAdjust(input: RGB, adjust: LocalAdjustV2): RGB {
 
 /**
  * レシピ全体を 1 画素に適用する参照実装: 全体の補正 → 部分補正を順に。
- * uv は幾何を掛ける前の画像の正規化座標。ブラシマスクは PR3 で足す
+ * uv は幾何を掛ける前の画像の正規化座標
  */
 export function applyRecipeAt(input: RGB, uv: Point, recipe: EditRecipe, size: Size): RGB {
   let rgb = applyAdjust(input, recipe.adjust);
   for (const local of recipe.localAdjustments) {
-    if (!local.visible || local.mask.kind !== "ellipse") continue;
-    const m = ellipseMaskValue(uv, local.mask, size) * (local.amount / 100);
+    if (!local.visible) continue;
+    const mask =
+      local.mask.kind === "ellipse"
+        ? ellipseMaskValue(uv, local.mask, size)
+        : brushMaskValue(uv, local.mask, size);
+    const m = mask * (local.amount / 100);
     if (m <= 0) continue;
     const adjusted = applyLocalAdjust(rgb, local.adjust);
     rgb = [mix(rgb[0], adjusted[0], m), mix(rgb[1], adjusted[1], m), mix(rgb[2], adjusted[2], m)];
