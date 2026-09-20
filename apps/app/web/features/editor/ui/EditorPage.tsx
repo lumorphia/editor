@@ -29,7 +29,7 @@ const toolBtn =
   "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
 /** Playwright からレシピ適用結果の画素を読むためのフック。E2E フラグがあるときだけ露出する。 */
-function installTestHook(renderer: EditorRenderer) {
+function installTestHook(renderer: EditorRenderer, getRecipe: () => EditRecipe) {
   const w = window as Window & { __PRISMTONE_E2E__?: boolean; __prismtoneEditor?: unknown };
   if (!w.__PRISMTONE_E2E__) return;
   w.__prismtoneEditor = {
@@ -56,6 +56,9 @@ function installTestHook(renderer: EditorRenderer) {
     previewPixels(points: { x: number; y: number }[]) {
       return renderer.previewPixels(points);
     },
+    currentRecipe() {
+      return getRecipe();
+    },
   };
 }
 
@@ -70,6 +73,8 @@ export function EditorPage() {
   const [ready, setReady] = useState(false);
 
   const recipe = state.history.present;
+  const recipeRef = useRef(recipe);
+  recipeRef.current = recipe;
 
   // PixiJS は SSR 不可なので動的 import (docs/design/08 §1)
   useEffect(() => {
@@ -89,7 +94,7 @@ export function EditorPage() {
         // 置き直し (fit / zoom / resize) はすべてここを通る。オーバーレイの位置の唯一の出どころ
         renderer.onView = setView;
         setReady(true);
-        installTestHook(renderer);
+        installTestHook(renderer, () => recipeRef.current);
       } catch (e) {
         // 原因を飲み込まない (CSP や WebGL の不調を切り分けられるように)
         console.error("editor renderer failed", e);

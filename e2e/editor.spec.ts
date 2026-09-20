@@ -528,6 +528,25 @@ test.describe("editor", () => {
     expect(px[0]![0]).toBeGreaterThan(200);
     expectClose(px[1]!, [128, 128, 128], 2);
     expectClose(px[2]!, [128, 128, 128], 2);
+
+    // 書き出し (原寸 3000x2000) も四隅まで描かれ、マスクの中心は明るい
+    const recipe = await page.evaluate(() =>
+      (
+        window as Window & { __prismtoneEditor?: { currentRecipe: () => EditRecipe } }
+      ).__prismtoneEditor!.currentRecipe(),
+    );
+    const out = await exportPixels(page, recipe, [
+      { x: 10, y: 10 },
+      { x: 2990, y: 1990 },
+      { x: 2700, y: 1800 },
+      { x: 2940, y: 1000 },
+    ]);
+    expect(out.width).toBe(3000);
+    expect(out.height).toBe(2000);
+    expectClose(out.pixels[0]!, [128, 128, 128], 2);
+    expectClose(out.pixels[1]!, [128, 128, 128], 2);
+    expect(out.pixels[2]![0]).toBeGreaterThan(200);
+    expectClose(out.pixels[3]!, [128, 128, 128], 2);
   });
 
   test("preset, undo, redo and reset drive the UI", async ({ page }) => {

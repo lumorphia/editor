@@ -38,6 +38,9 @@ export class DevelopStage {
       height: size.height,
       resolution: 1,
       antialias: false,
+      // 書き出しで原寸に resize する。dynamic でないと、表示側の Sprite が resize の update を購読せず
+      // (Sprite.mjs の texture setter)、四角形が古い寸法のまま描かれて周りが黒くなる
+      dynamic: true,
     });
     this.global = new AdjustFilter(recipe.adjust);
     this.setSize(size);
