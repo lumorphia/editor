@@ -18,6 +18,8 @@ type Props = {
   onCommit: (stroke: BrushStrokeV2) => void;
   /** 押している間 true。範囲の赤い重ねを出すために使う */
   onDrawing: (on: boolean) => void;
+  /** 描きかけを捨てる (ピンチに切り替わったとき)。プレビューで足した分を消すためにレシピを描き直す */
+  onCancel: () => void;
 };
 
 /** ポインタの移動をこれ未満 (画像の長辺に対する比) なら捨てる。レシピの点数を抑える */
@@ -35,6 +37,7 @@ export function BrushOverlay({
   onPreview,
   onCommit,
   onDrawing,
+  onCancel,
 }: Props) {
   const points = useRef<Point[] | null>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
@@ -84,6 +87,13 @@ export function BrushOverlay({
     const all = simplifyPoints([...pts, p], MIN_POINT_DISTANCE);
     onCommit(stroke(all));
   };
+  /** 2 本目の指が触れた (ピンチに切り替わった) など。描きかけは捨てる */
+  const onPointerCancel = () => {
+    if (!points.current) return;
+    points.current = null;
+    onDrawing(false);
+    onCancel();
+  };
 
   // ブラシの円 (画面 px)。直径 = size × 長辺 × 表示倍率
   const diameter = brush.size * Math.max(source.width, source.height) * view.scale;
@@ -95,7 +105,7 @@ export function BrushOverlay({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onPointerLeave={() => setCursor(null)}
     >
       {cursor && (

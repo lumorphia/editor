@@ -237,6 +237,11 @@ export class EditorRenderer {
     this.develop?.previewStroke(id, stroke);
   }
 
+  /** 描きかけのストロークを捨てる (ピンチに切り替わったとき) */
+  discardPreviewStroke(id: string): void {
+    this.develop?.discardPreviewStroke(id);
+  }
+
   /** 選択中の部分補正の範囲を赤で重ねる (null で消す) */
   setMaskPreview(id: string | null): void {
     this.previewMaskId = id;
