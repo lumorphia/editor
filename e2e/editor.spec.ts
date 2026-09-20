@@ -470,6 +470,15 @@ test.describe("editor", () => {
     const pinched = await viewRect();
     expect(pinched.scale / dragged.scale).toBeCloseTo(2, 1);
 
+    // 拡大して移動したあとに足した円形は、今見えている範囲の中央に来る (画像の中央ではない)
+    await page.getByTestId("local-add-ellipse").click();
+    const hostBox = (await page.getByTestId("canvas-host").boundingBox())!;
+    const added = (await page.getByTestId("ellipse-handle-move").boundingBox())!;
+    const v = await viewRect();
+    const visibleCx =
+      Math.max(0, v.x) + (Math.min(hostBox.width, v.x + v.width) - Math.max(0, v.x)) / 2;
+    expect(added.x + added.width / 2 - hostBox.x).toBeCloseTo(visibleCx, 0);
+
     await page.getByRole("button", { name: "フィット" }).click();
     await expect.poll(async () => (await viewRect()).scale).toBeCloseTo(fit.scale, 5);
     // 等倍

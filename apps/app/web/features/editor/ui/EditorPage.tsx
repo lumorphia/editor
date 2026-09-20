@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import type { EditRecipe } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile } from "../load-image.ts";
@@ -141,6 +141,23 @@ export function EditorPage() {
     [state.source],
   );
   useCanvasGestures(hostRef, gestureTarget, Boolean(state.source));
+
+  /**
+   * 新しい円形を今見えている範囲の中央に置く。半径は見えている範囲の短辺の 1/4 (拡大中は小さく)、
+   * 既定 (画像の 12%) を上限にする
+   */
+  const ellipseAtView = () => {
+    const r = rendererRef.current;
+    if (!r || !state.source) return undefined;
+    const { uv, visible } = r.visibleCenter;
+    const short = Math.min(visible.width, visible.height) / 4;
+    return {
+      cx: uv.x,
+      cy: uv.y,
+      rx: Math.min(DEFAULT_ELLIPSE_MASK.rx, short / state.source.bitmap.width),
+      ry: Math.min(DEFAULT_ELLIPSE_MASK.ry, short / state.source.bitmap.height),
+    };
+  };
 
   const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
   const zoomFit = () => rendererRef.current?.resetView();
@@ -567,7 +584,9 @@ export function EditorPage() {
               onShowHandles={(on) => dispatch({ type: "ui/show-handles", on })}
               brush={state.ui.local.brush}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
-              onAdd={(kind, presetId) => dispatch({ type: "local/add", kind, presetId })}
+              onAdd={(kind, presetId) =>
+                dispatch({ type: "local/add", kind, presetId, at: ellipseAtView() })
+              }
               onSelect={(id) => dispatch({ type: "local/select", id })}
               onRemove={(id) => dispatch({ type: "local/remove", id })}
               onToggleVisible={(id) => dispatch({ type: "local/toggle-visible", id })}

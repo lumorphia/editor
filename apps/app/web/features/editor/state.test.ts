@@ -94,6 +94,15 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(withOne.ui.tool).toBe("local");
   });
 
+  it("places a new ellipse where asked (the centre of the current view)", () => {
+    const at = { cx: 0.2, cy: 0.7, rx: 0.05, ry: 0.06 };
+    const s = editorReducer(loaded, { type: "local/add", kind: "ellipse", at });
+    expect(s.history.present.localAdjustments[0]!.mask).toEqual({ ...DEFAULT_ELLIPSE_MASK, ...at });
+    // ブラシには関係ない
+    const b = editorReducer(loaded, { type: "local/add", kind: "brush", at });
+    expect(b.history.present.localAdjustments[0]!.mask.kind).toBe("brush");
+  });
+
   it("adds with a preset applied when asked", () => {
     const s = editorReducer(loaded, { type: "local/add", kind: "ellipse", presetId: "eyes" });
     const local = s.history.present.localAdjustments[0]!;

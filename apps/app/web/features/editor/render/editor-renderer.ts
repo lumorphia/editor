@@ -12,6 +12,7 @@ import {
   type WebGLRenderer,
 } from "pixi.js";
 import type { BrushStrokeV2, EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
+import { canvasToImageUv } from "../mask-math.ts";
 import { DevelopStage } from "./develop-stage.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";
 import {
@@ -351,6 +352,29 @@ export class EditorRenderer {
       const i = (y * px.width + x) * 4;
       return [px.pixels[i]!, px.pixels[i + 1]!, px.pixels[i + 2]!];
     });
+  }
+
+  /**
+   * 今見えている範囲の中央 (画像の正規化座標、0..1 に収める) と、見えている範囲の大きさ (画像 px)。
+   * 円形マスクを「画像の中央」ではなく「今見ている場所」に置くため (docs/design/08 §3.3)
+   */
+  get visibleCenter(): { uv: { x: number; y: number }; visible: Size } {
+    const host = this.hostSize;
+    const rect = this.viewRect;
+    // ホストと画像の重なりの中央 (キャンバス座標)
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(host.width, rect.x + rect.width);
+    const y1 = Math.min(host.height, rect.y + rect.height);
+    const cx = ((x0 + x1) / 2 - rect.x) / rect.scale;
+    const cy = ((y0 + y1) / 2 - rect.y) / rect.scale;
+    const uv = this.geometry
+      ? canvasToImageUv({ x: cx, y: cy }, this.source, this.geometry)
+      : { x: 0.5, y: 0.5 };
+    return {
+      uv: { x: Math.min(1, Math.max(0, uv.x)), y: Math.min(1, Math.max(0, uv.y)) },
+      visible: { width: (x1 - x0) / rect.scale, height: (y1 - y0) / rect.scale },
+    };
   }
 
   /** 元画像の px に対する表示倍率 (1 = 等倍) */
