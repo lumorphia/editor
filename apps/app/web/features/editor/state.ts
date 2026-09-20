@@ -3,12 +3,14 @@ import {
   DEFAULT_ELLIPSE_MASK,
   DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
+  MAX_BRUSH_STROKES,
   MAX_LOCAL_ADJUSTMENTS,
   applyLocalPreset,
   applyPreset,
   findLocalPreset,
   findPreset,
   type AdjustV1,
+  type BrushStrokeV2,
   type EditRecipe,
   type GeometryV1,
   type LocalAdjustV2,
@@ -21,6 +23,13 @@ import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
 import type { LoadedImage } from "./load-image.ts";
 
 export type Tool = "adjust" | "geometry" | "presets" | "local";
+
+export type BrushSettings = {
+  readonly mode: BrushStrokeV2["mode"];
+  /** 直径。画像の長辺に対する比 */
+  readonly size: number;
+  readonly hardness: number;
+};
 
 export type EditorState = {
   readonly source: LoadedImage | null;
@@ -40,6 +49,8 @@ export type EditorState = {
     readonly local: {
       readonly selectedId: string | null;
       readonly showMask: boolean;
+      /** ブラシの設定。ストロークごとにレシピへ写す */
+      readonly brush: BrushSettings;
     };
   };
 };
@@ -64,7 +75,9 @@ export type EditorAction =
   | { type: "local/mask-preview"; id: string; mask: MaskV2 }
   | { type: "local/mask-commit"; id: string; mask: MaskV2 }
   | { type: "local/preset"; id: string; presetId: LocalPresetId }
+  | { type: "local/stroke-commit"; id: string; stroke: BrushStrokeV2 }
   | { type: "ui/show-mask"; on: boolean }
+  | { type: "ui/brush"; brush: BrushSettings }
   | { type: "history/undo" }
   | { type: "history/redo" }
   | { type: "ui/tool"; tool: Tool }
@@ -86,7 +99,7 @@ export const initialEditorState: EditorState = {
     cropping: false,
     exporting: false,
     error: null,
-    local: { selectedId: null, showMask: true },
+    local: { selectedId: null, showMask: true, brush: { mode: "add", size: 0.08, hardness: 0.7 } },
   },
 };
 
@@ -320,6 +333,20 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         `部分補正: ${preset.name}`,
       );
     }
+    case "local/stroke-commit": {
+      const target = history.present.localAdjustments.find((l) => l.id === action.id);
+      if (!target || target.mask.kind !== "brush") return state;
+      if (target.mask.strokes.length >= MAX_BRUSH_STROKES) return state;
+      const mask = target.mask;
+      return localCommit(
+        state,
+        action.id,
+        (l) => ({ ...l, mask: { ...mask, strokes: [...mask.strokes, action.stroke] } }),
+        action.stroke.mode === "add" ? "ブラシ" : "消しゴム",
+      );
+    }
+    case "ui/brush":
+      return { ...state, ui: { ...state.ui, local: { ...state.ui.local, brush: action.brush } } };
     case "ui/show-mask":
       return { ...state, ui: { ...state.ui, local: { ...state.ui.local, showMask: action.on } } };
     case "ui/tool":

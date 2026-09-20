@@ -1,7 +1,8 @@
 import { Container, Rectangle, RenderTexture, Sprite, type Renderer, type Texture } from "pixi.js";
-import type { EditRecipe, LocalAdjustmentV2 } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, EditRecipe, LocalAdjustmentV2 } from "@prismtone/shared/recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
 import { LocalAdjustFilter } from "./local-adjust-filter.ts";
+import { MaskTexture } from "./mask-texture.ts";
 import type { Size } from "./geometry.ts";
 
 /**
@@ -20,12 +21,16 @@ export class DevelopStage {
   private readonly sprite: Sprite;
   private readonly global: AdjustFilter;
   private locals: LocalAdjustFilter[] = [];
+  /** ブラシマスクのテクスチャ (部分補正の id ごと)。マスクのオブジェクトが変わったら描き直す */
+  private masks = new Map<string, { mask: LocalAdjustmentV2["mask"]; texture: MaskTexture }>();
+  private readonly source: Size;
   private recipe: EditRecipe;
   private previewMaskId: string | null = null;
   dirty = true;
 
   constructor(source: Texture, size: Size, recipe: EditRecipe) {
     this.recipe = recipe;
+    this.source = { width: source.width, height: source.height };
     this.sprite = new Sprite(source);
     this.container.addChild(this.sprite);
     this.texture = RenderTexture.create({
@@ -71,12 +76,45 @@ export class DevelopStage {
     this.dirty = true;
   }
 
+  /** 描画中のストロークをマスクに足す (レシピに入れる前のプレビュー) */
+  previewStroke(id: string, stroke: BrushStrokeV2): void {
+    const entry = this.masks.get(id);
+    if (!entry || entry.mask.kind !== "brush") return;
+    entry.texture.addStroke(stroke, entry.mask.feather);
+    this.dirty = true;
+  }
+
   private syncLocals(locals: readonly LocalAdjustmentV2[]): void {
     while (this.locals.length > locals.length) this.locals.pop()?.destroy();
     while (this.locals.length < locals.length) {
-      this.locals.push(new LocalAdjustFilter(locals[this.locals.length]!));
+      this.locals.push(new LocalAdjustFilter(locals[this.locals.length]!, this.source));
     }
-    locals.forEach((l, i) => this.locals[i]!.setLocal(l, l.id === this.previewMaskId));
+    const alive = new Set<string>();
+    locals.forEach((l, i) => {
+      const filter = this.locals[i]!;
+      filter.setLocal(l, l.id === this.previewMaskId);
+      if (l.mask.kind === "brush") {
+        alive.add(l.id);
+        let entry = this.masks.get(l.id);
+        if (!entry) {
+          entry = { mask: l.mask, texture: new MaskTexture(this.source) };
+          entry.texture.set(l.mask);
+          this.masks.set(l.id, entry);
+        } else if (entry.mask !== l.mask) {
+          entry.mask = l.mask;
+          entry.texture.set(l.mask);
+        }
+        filter.setMaskTexture(entry.texture.texture.source);
+      } else {
+        filter.setMaskTexture(null);
+      }
+    });
+    for (const [id, entry] of this.masks) {
+      if (!alive.has(id)) {
+        entry.texture.destroy();
+        this.masks.delete(id);
+      }
+    }
     this.sprite.filters = [this.global, ...this.locals];
   }
 
@@ -90,6 +128,8 @@ export class DevelopStage {
     this.global.destroy();
     for (const f of this.locals) f.destroy();
     this.locals = [];
+    for (const entry of this.masks.values()) entry.texture.destroy();
+    this.masks.clear();
     this.sprite.destroy();
     this.container.destroy();
     this.texture.destroy(true);

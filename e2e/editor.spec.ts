@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  DEFAULT_BRUSH_MASK,
   DEFAULT_ELLIPSE_MASK,
   DEFAULT_LOCAL_ADJUST,
   DEFAULT_LOCAL_ADJUSTMENT,
@@ -215,6 +216,77 @@ test.describe("editor", () => {
       ),
       3,
     );
+  });
+
+  test("a brush mask applies along its strokes, erase takes it back, and smoothing leaves flat areas alone (#109)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    const size = { width: 200, height: 100 };
+    const stroke = (x: number, mode: "add" | "erase" = "add") => ({
+      mode,
+      size: 0.15, // 直径 30px、半径 15px
+      hardness: 1,
+      points: [{ x, y: 0.5 }],
+    });
+    // 緑と青のブロックの中心を塗り、青の方を消す。露光 +1 と美肌 (平滑化) を掛ける
+    const gear = {
+      ...DEFAULT_LOCAL_ADJUSTMENT,
+      id: "gear",
+      mask: {
+        ...DEFAULT_BRUSH_MASK,
+        strokes: [stroke(0.375), stroke(0.625), stroke(0.625, "erase")],
+      },
+      adjust: { ...DEFAULT_LOCAL_ADJUST, exposure: 1, smooth: 60, sharpen: 40 },
+      amount: 100,
+    };
+    const recipe: EditRecipe = { ...DEFAULT_RECIPE, localAdjustments: [gear] };
+    const cpu = (rgb: [number, number, number], uv: { x: number; y: number }) =>
+      applyRecipeAt(rgb.map((v) => v / 255) as [number, number, number], uv, recipe, size).map(
+        (v) => Math.round(v * 255),
+      );
+    const out = await exportPixels(page, recipe, [
+      { x: 75, y: 50 }, // 緑の中心 (塗った)
+      { x: 125, y: 50 }, // 青の中心 (塗って消した)
+      { x: 25, y: 50 }, // 赤 (塗っていない)
+    ]);
+    // 平坦部なので平滑化・シャープは値を変えず、露光だけが効く
+    expectClose(out.pixels[0]!, cpu(BLOCKS[1]!, { x: 0.375, y: 0.5 }), 3);
+    expectClose(out.pixels[1]!, BLOCKS[2]!, 2);
+    expectClose(out.pixels[2]!, BLOCKS[0]!, 2);
+    expect(out.pixels[0]).not.toEqual(BLOCKS[1]);
+  });
+
+  test("the brush tool paints and erases on the canvas, one history step per stroke (#109)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    // 装備強調はブラシで始まる
+    await page.getByRole("button", { name: "装備強調" }).click();
+    await expect(page.getByTestId("local-list")).toContainText("装備強調 (ブラシ)");
+    await expect(page.getByTestId("brush-settings")).toBeVisible();
+    await expect(page.getByTestId("brush-overlay")).toBeVisible();
+    await expect(page.getByTestId("local-sliders").getByLabel("美肌")).toBeVisible();
+
+    const host = await page.getByTestId("canvas-host").boundingBox();
+    if (!host) throw new Error("no canvas");
+    const y = host.y + host.height / 2;
+    const x0 = host.x + host.width * 0.3;
+    await page.mouse.move(x0, y);
+    await page.mouse.down();
+    await page.mouse.move(x0 + 60, y, { steps: 6 });
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("ブラシ");
+
+    await page.getByRole("button", { name: "消す", exact: true }).click();
+    await page.mouse.move(x0, y);
+    await page.mouse.down();
+    await page.mouse.move(x0 + 20, y, { steps: 3 });
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("消しゴム");
+    await page.getByTestId("history-undo").click();
+    await expect(page.getByTestId("history-last")).toContainText("ブラシ");
   });
 
   test("the local panel adds an ellipse, drags it, undoes, hides, and survives a redo of the export (#109)", async ({

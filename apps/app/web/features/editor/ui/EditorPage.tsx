@@ -12,6 +12,7 @@ import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
 import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
+import { BrushOverlay } from "./BrushOverlay.tsx";
 import { LocalPanel } from "./LocalPanel.tsx";
 import { CompareSlider } from "./CompareSlider.tsx";
 
@@ -44,6 +45,9 @@ function installTestHook(renderer: EditorRenderer) {
         type: blob.type,
         pixels: points.map((p) => Array.from(ctx.getImageData(p.x, p.y, 1, 1).data).slice(0, 3)),
       };
+    },
+    benchmark(recipe: EditRecipe, frames?: number) {
+      return renderer.benchmark(recipe, frames);
     },
   };
 }
@@ -422,6 +426,25 @@ export function EditorPage() {
                 }
               />
             )}
+          {hasImage &&
+            state.source &&
+            state.ui.tool === "local" &&
+            selectedLocal?.mask.kind === "brush" &&
+            !state.ui.comparing &&
+            !state.ui.cropping && (
+              <BrushOverlay
+                view={view}
+                source={{ width: state.source.bitmap.width, height: state.source.bitmap.height }}
+                geometry={recipe.geometry}
+                brush={state.ui.local.brush}
+                onPreview={(segment) =>
+                  rendererRef.current?.previewStroke(selectedLocal.id, segment)
+                }
+                onCommit={(stroke) =>
+                  dispatch({ type: "local/stroke-commit", id: selectedLocal.id, stroke })
+                }
+              />
+            )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
             <CropOverlay
               view={view}
@@ -476,7 +499,9 @@ export function EditorPage() {
               list={recipe.localAdjustments}
               selectedId={selectedLocal?.id ?? null}
               showMask={state.ui.local.showMask}
-              onAdd={(presetId) => dispatch({ type: "local/add", kind: "ellipse", presetId })}
+              brush={state.ui.local.brush}
+              onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
+              onAdd={(kind, presetId) => dispatch({ type: "local/add", kind, presetId })}
               onSelect={(id) => dispatch({ type: "local/select", id })}
               onRemove={(id) => dispatch({ type: "local/remove", id })}
               onToggleVisible={(id) => dispatch({ type: "local/toggle-visible", id })}

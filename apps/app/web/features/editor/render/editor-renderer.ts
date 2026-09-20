@@ -11,7 +11,7 @@ import {
   TexturePool,
   type WebGLRenderer,
 } from "pixi.js";
-import type { EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
 import { DevelopStage } from "./develop-stage.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";
 
@@ -21,6 +21,13 @@ export type ExportOptions = {
   format?: ExportFormat;
   quality?: number;
   maxEdge?: number;
+};
+
+export type Benchmark = {
+  developMs: number;
+  exportMs: number;
+  textureBytes: number;
+  previewSize: Size;
 };
 
 export const EXPORT_MAX_EDGE = 4096;
@@ -161,6 +168,48 @@ export class EditorRenderer {
     this.placeSprites(recipe.geometry);
     this.fit();
     this.applyCompare();
+  }
+
+  /**
+   * 計測用 (docs/spikes の部分補正の性能、#109): 合成の段を frames 回描いたときの 1 回あたりの ms と、
+   * 書き出し 1 回の ms、GPU に載っているテクスチャの概算バイト数。開発と E2E のフックからだけ呼ぶ。
+   * 描いたテクスチャから 1px 読み戻して GPU の完了まで待つので、実際のフレーム時間より重めに出る
+   * (gl.finish() は ANGLE で待たないことがある)
+   */
+  async benchmark(recipe: EditRecipe, frames = 30): Promise<Benchmark> {
+    if (!this.develop) throw new Error("no image loaded");
+    this.setRecipe(recipe);
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) {
+      this.develop.dirty = true;
+      this.develop.render(this.app.renderer);
+      this.app.renderer.extract.pixels({
+        target: this.develop.texture,
+        frame: new Rectangle(0, 0, 1, 1),
+      });
+    }
+    const developMs = (performance.now() - t0) / frames;
+    const t1 = performance.now();
+    await this.export(recipe, { format: "image/png" });
+    const exportMs = performance.now() - t1;
+    const textureBytes = this.managedTextureBytes();
+    return { developMs, exportMs, textureBytes, previewSize: this.develop.size };
+  }
+
+  /** GL に載っているテクスチャの概算 (RGBA8 として w × h × 4)。managedTextures は 8.15 で deprecated なので防御的に */
+  private managedTextureBytes(): number {
+    const system = (this.app.renderer as WebGLRenderer).texture as unknown as {
+      _managedTextures?: {
+        items?: Record<string, { pixelWidth: number; pixelHeight: number } | null>;
+      };
+    };
+    const items = Object.values(system._managedTextures?.items ?? {});
+    return items.reduce((sum, t) => sum + (t ? t.pixelWidth * t.pixelHeight * 4 : 0), 0);
+  }
+
+  /** ブラシで描いている途中のストロークを、レシピに入れる前にマスクへ足す */
+  previewStroke(id: string, stroke: BrushStrokeV2): void {
+    this.develop?.previewStroke(id, stroke);
   }
 
   /** 選択中の部分補正の範囲を赤で重ねる (null で消す) */

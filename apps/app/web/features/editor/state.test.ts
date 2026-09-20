@@ -199,4 +199,42 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(off.history).toBe(withOne.history);
     expect(editorReducer(off, { type: "ui/show-mask", on: true }).ui.local.showMask).toBe(true);
   });
+
+  it("adds a brush adjustment and appends strokes as one history step each", () => {
+    let s = editorReducer(loaded, { type: "local/add", kind: "brush", presetId: "gear" });
+    const bid = s.history.present.localAdjustments[0]!.id;
+    expect(s.history.present.localAdjustments[0]!.mask.kind).toBe("brush");
+    const stroke = { mode: "add" as const, size: 0.1, hardness: 0.8, points: [{ x: 0.5, y: 0.5 }] };
+    s = editorReducer(s, { type: "local/stroke-commit", id: bid, stroke });
+    s = editorReducer(s, {
+      type: "local/stroke-commit",
+      id: bid,
+      stroke: { ...stroke, mode: "erase" },
+    });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind === "brush" && mask.strokes).toHaveLength(2);
+    expect(s.history.pastLabels.slice(-2)).toEqual(["ブラシ", "消しゴム"]);
+    // ストロークはプリセットの表示を外さない (色の値は変えていない)
+    expect(s.history.present.localAdjustments[0]!.presetId).toBe("gear");
+  });
+
+  it("ignores a stroke on an ellipse adjustment and beyond the stroke limit", () => {
+    const stroke = { mode: "add" as const, size: 0.1, hardness: 1, points: [{ x: 0.5, y: 0.5 }] };
+    expect(editorReducer(withOne, { type: "local/stroke-commit", id, stroke })).toBe(withOne);
+    let s = editorReducer(loaded, { type: "local/add", kind: "brush" });
+    const bid = s.history.present.localAdjustments[0]!.id;
+    for (let i = 0; i < 70; i++)
+      s = editorReducer(s, { type: "local/stroke-commit", id: bid, stroke });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind === "brush" && mask.strokes).toHaveLength(64);
+  });
+
+  it("keeps the brush settings in ui state", () => {
+    const s = editorReducer(loaded, {
+      type: "ui/brush",
+      brush: { mode: "erase", size: 0.2, hardness: 0.3 },
+    });
+    expect(s.ui.local.brush).toEqual({ mode: "erase", size: 0.2, hardness: 0.3 });
+    expect(initialEditorState.ui.local.brush.mode).toBe("add");
+  });
 });

@@ -1,18 +1,23 @@
 import {
   LOCAL_PRESETS,
   MAX_LOCAL_ADJUSTMENTS,
+  MAX_LOCAL_SMOOTH,
   type LocalAdjustV2,
   type LocalAdjustmentV2,
   type LocalPresetId,
+  type MaskV2,
 } from "@prismtone/shared/recipe";
 import { LOCAL_ADJUST_LABELS } from "../labels.ts";
+import type { BrushSettings } from "../state.ts";
 import { Slider } from "./Slider.tsx";
 
 type Props = {
   list: readonly LocalAdjustmentV2[];
   selectedId: string | null;
   showMask: boolean;
-  onAdd: (presetId?: LocalPresetId) => void;
+  brush: BrushSettings;
+  onAdd: (kind: MaskV2["kind"], presetId?: LocalPresetId) => void;
+  onBrush: (brush: BrushSettings) => void;
   onSelect: (id: string | null) => void;
   onRemove: (id: string) => void;
   onToggleVisible: (id: string) => void;
@@ -32,7 +37,8 @@ const ROWS: { key: keyof LocalAdjustV2; min: number; max: number; step: number; 
   { key: "temperature", min: -100, max: 100, step: 1 },
   { key: "tint", min: -100, max: 100, step: 1 },
   { key: "saturation", min: -100, max: 100, step: 1 },
-  // シャープと美肌 (smooth、上限 MAX_LOCAL_SMOOTH) は描画が入る PR3 でここに足す
+  { key: "sharpen", min: 0, max: 100, step: 1 },
+  { key: "smooth", min: 0, max: MAX_LOCAL_SMOOTH, step: 1 },
 ];
 
 const btn =
@@ -45,7 +51,7 @@ function localName(l: LocalAdjustmentV2, index: number): string {
   return preset ? `${preset.name} (${kind})` : `部分補正 ${index + 1} (${kind})`;
 }
 
-/** 部分補正のパネル (#109): 一覧、追加、プリセット、効果量とスライダー。ブラシの追加は PR3 */
+/** 部分補正のパネル (#109): 一覧、追加 (円形 / ブラシ)、ブラシの設定、プリセット、効果量とスライダー */
 export function LocalPanel(p: Props) {
   const selected = p.list.find((l) => l.id === p.selectedId) ?? null;
   const full = p.list.length >= MAX_LOCAL_ADJUSTMENTS;
@@ -56,10 +62,19 @@ export function LocalPanel(p: Props) {
           type="button"
           className={btn}
           disabled={full}
-          onClick={() => p.onAdd()}
+          onClick={() => p.onAdd("ellipse")}
           data-testid="local-add-ellipse"
         >
           円形を追加
+        </button>
+        <button
+          type="button"
+          className={btn}
+          disabled={full}
+          onClick={() => p.onAdd("brush")}
+          data-testid="local-add-brush"
+        >
+          ブラシを追加
         </button>
         <span className="text-xs text-ink-muted">
           {p.list.length} / {MAX_LOCAL_ADJUSTMENTS}
@@ -119,9 +134,55 @@ export function LocalPanel(p: Props) {
           ))}
         </ul>
       )}
+      {selected?.mask.kind === "brush" && (
+        <div className="space-y-2 rounded border border-line-soft p-2" data-testid="brush-settings">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-muted">キャンバスをなぞって範囲を塗る</span>
+            <span className="flex-1" />
+            {(
+              [
+                ["add", "塗る"],
+                ["erase", "消す"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                className={btn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
+                aria-pressed={p.brush.mode === mode}
+                onClick={() => p.onBrush({ ...p.brush, mode })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Slider
+            label="サイズ"
+            value={Math.round(p.brush.size * 100)}
+            min={1}
+            max={50}
+            step={1}
+            format={(v) => `${v}%`}
+            onPreview={(v) => p.onBrush({ ...p.brush, size: v / 100 })}
+            onCommit={(v) => p.onBrush({ ...p.brush, size: v / 100 })}
+          />
+          <Slider
+            label="硬さ"
+            value={Math.round(p.brush.hardness * 100)}
+            min={0}
+            max={100}
+            step={1}
+            format={(v) => `${v}%`}
+            onPreview={(v) => p.onBrush({ ...p.brush, hardness: v / 100 })}
+            onCommit={(v) => p.onBrush({ ...p.brush, hardness: v / 100 })}
+          />
+        </div>
+      )}
       <div>
         <p className="mb-1 text-xs text-ink-muted">
-          {selected ? "選択中の範囲に適用" : "新しい円形マスクを追加して適用"}
+          {selected
+            ? "選択中の範囲に適用"
+            : "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)"}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {LOCAL_PRESETS.map((preset) => (
@@ -132,7 +193,11 @@ export function LocalPanel(p: Props) {
               aria-pressed={selected?.presetId === preset.id}
               title={preset.hint}
               disabled={!selected && full}
-              onClick={() => (selected ? p.onPreset(selected.id, preset.id) : p.onAdd(preset.id))}
+              onClick={() =>
+                selected
+                  ? p.onPreset(selected.id, preset.id)
+                  : p.onAdd(preset.id === "gear" ? "brush" : "ellipse", preset.id)
+              }
             >
               {preset.name}
             </button>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ADJUST,
+  DEFAULT_BRUSH_MASK,
   DEFAULT_ELLIPSE_MASK,
   DEFAULT_LOCAL_ADJUST,
   DEFAULT_LOCAL_ADJUSTMENT,
@@ -137,5 +138,21 @@ describe("applyRecipeAt (部分補正の CPU 参照、#109)", () => {
     expect(applyLocalAdjust(px, local)).toEqual(
       applyAdjust(px, { ...DEFAULT_ADJUST, exposure: 0.5, contrast: 20, temperature: -30 }),
     );
+  });
+
+  it("evaluates a brush mask through the stroke geometry", () => {
+    const brush = {
+      ...eye,
+      id: "gear",
+      mask: {
+        ...DEFAULT_BRUSH_MASK,
+        strokes: [{ mode: "add" as const, size: 0.2, hardness: 1, points: [{ x: 0.75, y: 0.5 }] }],
+      },
+    };
+    const recipe = { ...DEFAULT_RECIPE, localAdjustments: [brush] };
+    expect(applyRecipeAt(px, { x: 0.75, y: 0.5 }, recipe, size)).toEqual(
+      applyLocalAdjust(px, eye.adjust),
+    );
+    expect(applyRecipeAt(px, { x: 0.25, y: 0.5 }, recipe, size)).toEqual(px);
   });
 });
