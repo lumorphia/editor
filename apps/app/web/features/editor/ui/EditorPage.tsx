@@ -10,6 +10,7 @@ import type { EditorRenderer } from "../render/editor-renderer.ts";
 import { AdjustPanel } from "./AdjustPanel.tsx";
 import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
+import { ZOOM_STEP } from "../render/viewport.ts";
 import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
 import { BrushOverlay } from "./BrushOverlay.tsx";
@@ -48,6 +49,9 @@ function installTestHook(renderer: EditorRenderer) {
     },
     benchmark(recipe: EditRecipe, frames?: number) {
       return renderer.benchmark(recipe, frames);
+    },
+    viewRect() {
+      return renderer.viewRect;
     },
   };
 }
@@ -116,6 +120,49 @@ export function EditorPage() {
   useEffect(() => {
     rendererRef.current?.setMaskPreview(maskPreviewId);
   }, [maskPreviewId, state.source]);
+
+  // ズームと移動 (docs/design/08 §3.3): Ctrl (Cmd) + ホイールとピンチで拡大縮小、ホイールで移動。
+  // preventDefault するので passive にできず、React の onWheel ではなく直接 listen する
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onWheel = (e: WheelEvent) => {
+      const r = rendererRef.current;
+      if (!r || !state.source) return;
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const rect = host.getBoundingClientRect();
+        const factor = Math.exp(-e.deltaY * 0.01);
+        r.zoomBy(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+      } else {
+        r.panBy(-e.deltaX, -e.deltaY);
+      }
+      setView(r.viewRect);
+    };
+    host.addEventListener("wheel", onWheel, { passive: false });
+    return () => host.removeEventListener("wheel", onWheel);
+  }, [state.source]);
+
+  const zoomBy = (factor: number) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.zoomBy(factor);
+    setView(r.viewRect);
+  };
+  const zoomFit = () => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.resetView();
+    setView(r.viewRect);
+  };
+  const zoomActual = () => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.zoomToActual();
+    setView(r.viewRect);
+  };
+  // 表示倍率 (元画像の px に対して)。デバイスの px ではなく CSS px
+  const zoomPercent = Math.round(view.scale * 100);
 
   // リサイズで枠位置を追従
   useEffect(() => {
@@ -295,7 +342,8 @@ export function EditorPage() {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-[32rem] flex-col gap-3 lg:flex-row">
-      <section className="flex min-h-0 flex-1 flex-col gap-2">
+      {/* min-w-0: canvas の明示幅で flex の子が縮めなくなり、窓を狭めたとき右パネルが押し出されるのを防ぐ */}
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <input
             ref={fileInput}
@@ -358,6 +406,52 @@ export function EditorPage() {
             全リセット
           </button>
           <span className="flex-1" />
+          <span
+            className="flex items-center gap-1 text-sm"
+            role="group"
+            aria-label="表示倍率"
+            data-testid="zoom-group"
+          >
+            <button
+              type="button"
+              className={toolBtn}
+              disabled={!hasImage}
+              aria-label="縮小"
+              title="縮小 (Ctrl + ホイール)"
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className={toolBtn + " min-w-[4.5rem] tabular-nums"}
+              disabled={!hasImage}
+              title="クリックで等倍 (100%)"
+              onClick={zoomActual}
+              data-testid="zoom-percent"
+            >
+              {hasImage ? `${zoomPercent}%` : "–"}
+            </button>
+            <button
+              type="button"
+              className={toolBtn}
+              disabled={!hasImage}
+              aria-label="拡大"
+              title="拡大 (Ctrl + ホイール)"
+              onClick={() => zoomBy(ZOOM_STEP)}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className={toolBtn}
+              disabled={!hasImage}
+              onClick={zoomFit}
+              title="全体が収まる大きさに戻す"
+            >
+              フィット
+            </button>
+          </span>
           <button
             type="button"
             className={toolBtn}
