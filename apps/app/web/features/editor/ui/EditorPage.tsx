@@ -484,6 +484,7 @@ export function EditorPage() {
             state.source &&
             state.ui.tool === "local" &&
             selectedLocal?.mask.kind === "ellipse" &&
+            state.ui.local.showHandles &&
             !state.ui.comparing &&
             !state.ui.cropping && (
               <EllipseMaskOverlay
@@ -574,6 +575,8 @@ export function EditorPage() {
               list={recipe.localAdjustments}
               selectedId={selectedLocal?.id ?? null}
               showMask={state.ui.local.showMask}
+              showHandles={state.ui.local.showHandles}
+              onShowHandles={(on) => dispatch({ type: "ui/show-handles", on })}
               brush={state.ui.local.brush}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
               onAdd={(kind, presetId) => dispatch({ type: "local/add", kind, presetId })}

@@ -372,6 +372,12 @@ test.describe("editor", () => {
       "false",
     );
 
+    // 「枠を表示」を外すと輪郭とハンドルが消え、戻すと出る
+    await page.getByLabel("枠を表示").uncheck();
+    await expect(page.getByTestId("ellipse-overlay")).toHaveCount(0);
+    await page.getByLabel("枠を表示").check();
+    await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
+
     // 隠すとオーバーレイは残るが (選択中)、非表示の印になる
     await page.getByRole("button", { name: "表示中" }).click();
     await expect(page.getByTestId("local-list")).toContainText("非表示");

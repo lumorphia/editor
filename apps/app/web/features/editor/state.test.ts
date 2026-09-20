@@ -198,6 +198,10 @@ describe("editorReducer: 部分補正 (#109)", () => {
     const on = editorReducer(withOne, { type: "ui/show-mask", on: true });
     expect(on.ui.local.showMask).toBe(true);
     expect(on.history).toBe(withOne.history);
+    expect(initialEditorState.ui.local.showHandles).toBe(true);
+    expect(
+      editorReducer(withOne, { type: "ui/show-handles", on: false }).ui.local.showHandles,
+    ).toBe(false);
     const drawing = editorReducer(withOne, { type: "ui/drawing", on: true });
     expect(drawing.ui.local.drawing).toBe(true);
     expect(editorReducer(drawing, { type: "ui/drawing", on: false }).ui.local.drawing).toBe(false);
