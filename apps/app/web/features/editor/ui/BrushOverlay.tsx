@@ -16,6 +16,8 @@ type Props = {
   onPreview: (segment: BrushStrokeV2) => void;
   /** 離したとき: 間引いたストロークをレシピに積む */
   onCommit: (stroke: BrushStrokeV2) => void;
+  /** 押している間 true。範囲の赤い重ねを出すために使う */
+  onDrawing: (on: boolean) => void;
 };
 
 /** ポインタの移動をこれ未満 (画像の長辺に対する比) なら捨てる。レシピの点数を抑える */
@@ -25,7 +27,15 @@ const MIN_POINT_DISTANCE = 0.005;
  * ブラシマスクの DOM オーバーレイ (#109)。キャンバス全体でポインタを受け、画像座標の点列にする。
  * 描画中は 1 線分ずつ renderer に足して即時に見せ、離したときに 1 ストロークとして履歴に積む。
  */
-export function BrushOverlay({ view, source, geometry, brush, onPreview, onCommit }: Props) {
+export function BrushOverlay({
+  view,
+  source,
+  geometry,
+  brush,
+  onPreview,
+  onCommit,
+  onDrawing,
+}: Props) {
   const points = useRef<Point[] | null>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
@@ -51,6 +61,7 @@ export function BrushOverlay({ view, source, geometry, brush, onPreview, onCommi
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const p = toUv(e);
     points.current = [p];
+    onDrawing(true);
     onPreview(stroke([p]));
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -68,6 +79,7 @@ export function BrushOverlay({ view, source, geometry, brush, onPreview, onCommi
     const pts = points.current;
     points.current = null;
     if (!pts) return;
+    onDrawing(false);
     const p = toUv(e);
     const all = simplifyPoints([...pts, p], MIN_POINT_DISTANCE);
     onCommit(stroke(all));

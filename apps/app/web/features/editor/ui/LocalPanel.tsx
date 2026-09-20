@@ -15,6 +15,7 @@ type Props = {
   list: readonly LocalAdjustmentV2[];
   selectedId: string | null;
   showMask: boolean;
+  showHandles: boolean;
   brush: BrushSettings;
   onAdd: (kind: MaskV2["kind"], presetId?: LocalPresetId) => void;
   onBrush: (brush: BrushSettings) => void;
@@ -27,6 +28,7 @@ type Props = {
   onAdjustPreview: (id: string, key: keyof LocalAdjustV2, value: number) => void;
   onAdjustCommit: (id: string, key: keyof LocalAdjustV2, value: number) => void;
   onShowMask: (on: boolean) => void;
+  onShowHandles: (on: boolean) => void;
 };
 
 const ROWS: { key: keyof LocalAdjustV2; min: number; max: number; step: number; ev?: boolean }[] = [
@@ -79,13 +81,25 @@ export function LocalPanel(p: Props) {
         <span className="text-xs text-ink-muted">
           {p.list.length} / {MAX_LOCAL_ADJUSTMENTS}
         </span>
-        <label className="ml-auto flex items-center gap-1 text-xs text-ink-muted">
+        <span className="flex-1" />
+        <label className="flex items-center gap-1 text-xs text-ink-muted">
           <input
             type="checkbox"
             checked={p.showMask}
             onChange={(e) => p.onShowMask(e.currentTarget.checked)}
           />
           範囲を表示
+        </label>
+        <label
+          className="flex items-center gap-1 text-xs text-ink-muted"
+          title="円形の輪郭とハンドル。オフの間は動かせない"
+        >
+          <input
+            type="checkbox"
+            checked={p.showHandles}
+            onChange={(e) => p.onShowHandles(e.currentTarget.checked)}
+          />
+          枠を表示
         </label>
       </div>
       {p.list.length === 0 ? (

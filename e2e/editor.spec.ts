@@ -279,6 +279,45 @@ test.describe("editor", () => {
     await page.mouse.up();
     await expect(page.getByTestId("history-last")).toContainText("ブラシ");
 
+    // 塗っている間だけ範囲が赤く重なり、離すと消えて補正 (露光 +2) だけが見える
+    const view = await page.evaluate(() =>
+      (
+        window as Window & {
+          __prismtoneEditor?: {
+            viewRect: () => { x: number; y: number; width: number; height: number };
+          };
+        }
+      ).__prismtoneEditor!.viewRect(),
+    );
+    const uv = {
+      x: (x0 + 30 - host.x - view.x) / view.width,
+      y: (y - host.y - view.y) / view.height,
+    };
+    const readAt = () =>
+      page.evaluate(
+        (p) =>
+          (
+            window as Window & {
+              __prismtoneEditor?: { previewPixels: (q: { x: number; y: number }[]) => number[][] };
+            }
+          ).__prismtoneEditor!.previewPixels([p])[0]!,
+        uv,
+      );
+    const exposure = page.getByTestId("local-sliders").getByLabel("露光量");
+    await exposure.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
+    // 装備強調の +0.15 に +2.00 が乗る
+    await expect(page.getByTestId("history-last")).toContainText("露光量 +2.15");
+    const released = await readAt();
+    expect(released[1]).toBeGreaterThan(BLOCKS[1]![1]! + 20); // 緑ブロックの上、露光で明るい
+    expect(released[1]).toBeGreaterThan(released[0]!); // 赤く染まっていない (緑が主のまま)
+    await page.mouse.move(x0 + 30, y);
+    await page.mouse.down();
+    const pressed = await readAt();
+    expect(pressed[0]).toBeGreaterThan(released[0]! + 40); // 押している間は赤が乗る
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("ブラシ");
+
     await page.getByRole("button", { name: "消す", exact: true }).click();
     await page.mouse.move(x0, y);
     await page.mouse.down();
@@ -332,6 +371,12 @@ test.describe("editor", () => {
       "aria-pressed",
       "false",
     );
+
+    // 「枠を表示」を外すと輪郭とハンドルが消え、戻すと出る
+    await page.getByLabel("枠を表示").uncheck();
+    await expect(page.getByTestId("ellipse-overlay")).toHaveCount(0);
+    await page.getByLabel("枠を表示").check();
+    await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
 
     // 隠すとオーバーレイは残るが (選択中)、非表示の印になる
     await page.getByRole("button", { name: "表示中" }).click();
@@ -420,6 +465,94 @@ test.describe("editor", () => {
     );
     expect(view.width).toBeLessThanOrEqual(host!.width);
     expect(view.width).toBeGreaterThan(host!.width * 0.9);
+  });
+
+  test("a large image is developed over its whole preview, and a local adjustment lands where it was placed", async ({
+    page,
+  }) => {
+    // 3000x2000 はプレビューで 2048 に縮む。縮小した合成の段でも画像全体が描かれ、右下の部分補正も効く
+    await page.addInitScript(() => {
+      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+    });
+    await page.goto("/edit");
+    const png = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 3000;
+      c.height = 2000;
+      const g = c.getContext("2d")!;
+      g.fillStyle = "rgb(128,128,128)";
+      g.fillRect(0, 0, 3000, 2000);
+      return c.toDataURL("image/png");
+    });
+    await page.getByTestId("file-input").setInputFiles({
+      name: "big.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(png.split(",")[1]!, "base64"),
+    });
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
+    await page.waitForFunction(() =>
+      Boolean((window as Window & { __prismtoneEditor?: unknown }).__prismtoneEditor),
+    );
+    // 右下 (0.9, 0.9) に露光 +2 の円形マスク
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await page.getByTestId("local-add-ellipse").click();
+    const move = page.getByTestId("ellipse-handle-move");
+    const view = await page.evaluate(() =>
+      (
+        window as Window & {
+          __prismtoneEditor?: {
+            viewRect: () => { x: number; y: number; width: number; height: number };
+          };
+        }
+      ).__prismtoneEditor!.viewRect(),
+    );
+    const host = (await page.getByTestId("canvas-host").boundingBox())!;
+    const from = (await move.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(host.x + view.x + 0.9 * view.width, host.y + view.y + 0.9 * view.height, {
+      steps: 5,
+    });
+    await page.mouse.up();
+    const exposure = page.getByTestId("local-sliders").getByLabel("露光量");
+    await exposure.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
+    await expect(page.getByTestId("history-last")).toContainText("露光量 +2.00");
+
+    const px = await page.evaluate(() =>
+      (
+        window as Window & {
+          __prismtoneEditor?: { previewPixels: (p: { x: number; y: number }[]) => number[][] };
+        }
+      ).__prismtoneEditor!.previewPixels([
+        { x: 0.9, y: 0.9 },
+        { x: 0.1, y: 0.1 },
+        { x: 0.98, y: 0.5 },
+      ]),
+    );
+    // マスクの中心は明るく、離れた左上はそのまま、右端 (マスクの外) も (透明 = 黒ではなく) 灰色で描かれている
+    expect(px[0]![0]).toBeGreaterThan(200);
+    expectClose(px[1]!, [128, 128, 128], 2);
+    expectClose(px[2]!, [128, 128, 128], 2);
+
+    // 書き出し (原寸 3000x2000) も四隅まで描かれ、マスクの中心は明るい
+    const recipe = await page.evaluate(() =>
+      (
+        window as Window & { __prismtoneEditor?: { currentRecipe: () => EditRecipe } }
+      ).__prismtoneEditor!.currentRecipe(),
+    );
+    const out = await exportPixels(page, recipe, [
+      { x: 10, y: 10 },
+      { x: 2990, y: 1990 },
+      { x: 2700, y: 1800 },
+      { x: 2940, y: 1000 },
+    ]);
+    expect(out.width).toBe(3000);
+    expect(out.height).toBe(2000);
+    expectClose(out.pixels[0]!, [128, 128, 128], 2);
+    expectClose(out.pixels[1]!, [128, 128, 128], 2);
+    expect(out.pixels[2]![0]).toBeGreaterThan(200);
+    expectClose(out.pixels[3]!, [128, 128, 128], 2);
   });
 
   test("preset, undo, redo and reset drive the UI", async ({ page }) => {

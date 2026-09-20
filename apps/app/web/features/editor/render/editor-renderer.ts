@@ -32,6 +32,8 @@ export type ExportOptions = {
   maxEdge?: number;
 };
 
+export type ViewRect = { x: number; y: number; width: number; height: number; scale: number };
+
 export type Benchmark = {
   developMs: number;
   exportMs: number;
@@ -91,6 +93,8 @@ export class EditorRenderer {
   private resizeObserver: ResizeObserver | null = null;
   /** 表示のズームと移動。レシピではなく画面の状態 (docs/design/08 §3.3) */
   private viewport: Viewport = DEFAULT_VIEWPORT;
+  /** 置き直すたびに呼ぶ。DOM のオーバーレイが viewRect を追うための唯一の通知 */
+  onView: ((rect: ViewRect) => void) | null = null;
 
   static async create(host: HTMLElement): Promise<EditorRenderer> {
     const app = new Application();
@@ -110,7 +114,12 @@ export class EditorRenderer {
     const r = new EditorRenderer(app, host);
     app.stage.addChild(r.stage);
     r.stage.addChild(r.image);
-    r.resizeObserver = new ResizeObserver(() => r.fit());
+    // resizeTo は window の resize しか見ない。ツールバーの折り返しなどでホストだけ変わったときも
+    // canvas を合わせてから置き直す
+    r.resizeObserver = new ResizeObserver(() => {
+      app.resize();
+      r.fit();
+    });
     r.resizeObserver.observe(host);
     // TickerPlugin の描画 (LOW) より先に走り、レシピが変わっていれば現像の段を描く
     app.ticker.add(r.tick);
@@ -294,7 +303,7 @@ export class EditorRenderer {
   }
 
   /** ホスト内でキャンバスが占める矩形 (CSS px)。DOM オーバーレイの配置に使う。 */
-  get viewRect(): { x: number; y: number; width: number; height: number; scale: number } {
+  get viewRect(): ViewRect {
     const size = this.canvasSize;
     const s = this.stage.scale.x;
     return {
@@ -319,6 +328,24 @@ export class EditorRenderer {
     const p = place(this.canvasSize, host, this.viewport);
     this.stage.scale.set(p.scale);
     this.stage.position.set(p.x, p.y);
+    this.onView?.(this.viewRect);
+  }
+
+  /**
+   * テスト用: プレビュー (合成の段のテクスチャ) の画素を画像の正規化座標で読む。
+   * 書き出し (原寸) ではなく縮小プレビューが正しく描けているかを見るため
+   */
+  previewPixels(points: readonly { x: number; y: number }[]): number[][] {
+    if (!this.develop) throw new Error("no image loaded");
+    if (this.develop.dirty) this.develop.render(this.app.renderer);
+    const { width, height } = this.develop.size;
+    const px = this.app.renderer.extract.pixels({ target: this.develop.texture });
+    return points.map((p) => {
+      const x = Math.min(width - 1, Math.floor(p.x * width));
+      const y = Math.min(height - 1, Math.floor(p.y * height));
+      const i = (y * px.width + x) * 4;
+      return [px.pixels[i]!, px.pixels[i + 1]!, px.pixels[i + 2]!];
+    });
   }
 
   /** 元画像の px に対する表示倍率 (1 = 等倍) */

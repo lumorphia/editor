@@ -38,6 +38,9 @@ export class DevelopStage {
       height: size.height,
       resolution: 1,
       antialias: false,
+      // 書き出しで原寸に resize する。dynamic でないと、表示側の Sprite が resize の update を購読せず
+      // (Sprite.mjs の texture setter)、四角形が古い寸法のまま描かれて周りが黒くなる
+      dynamic: true,
     });
     this.global = new AdjustFilter(recipe.adjust);
     this.setSize(size);
@@ -57,7 +60,11 @@ export class DevelopStage {
     }
     this.sprite.width = width;
     this.sprite.height = height;
-    this.sprite.filterArea = new Rectangle(0, 0, width, height);
+    // filterArea はローカル座標で、Pixi が worldTransform (上の width/height による縮小) を掛ける
+    // (FilterSystem._calculateFilterArea)。元寸で与えて、world で RenderTexture の寸法に一致させる。
+    // 縮小した寸法を与えると、フィルタが画像の左上の一部しか描かない
+    const orig = this.sprite.texture.orig;
+    this.sprite.filterArea = new Rectangle(0, 0, orig.width, orig.height);
     this.dirty = true;
   }
 

@@ -29,7 +29,7 @@ const toolBtn =
   "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
 /** Playwright からレシピ適用結果の画素を読むためのフック。E2E フラグがあるときだけ露出する。 */
-function installTestHook(renderer: EditorRenderer) {
+function installTestHook(renderer: EditorRenderer, getRecipe: () => EditRecipe) {
   const w = window as Window & { __PRISMTONE_E2E__?: boolean; __prismtoneEditor?: unknown };
   if (!w.__PRISMTONE_E2E__) return;
   w.__prismtoneEditor = {
@@ -53,6 +53,12 @@ function installTestHook(renderer: EditorRenderer) {
     viewRect() {
       return renderer.viewRect;
     },
+    previewPixels(points: { x: number; y: number }[]) {
+      return renderer.previewPixels(points);
+    },
+    currentRecipe() {
+      return getRecipe();
+    },
   };
 }
 
@@ -67,6 +73,8 @@ export function EditorPage() {
   const [ready, setReady] = useState(false);
 
   const recipe = state.history.present;
+  const recipeRef = useRef(recipe);
+  recipeRef.current = recipe;
 
   // PixiJS は SSR 不可なので動的 import (docs/design/08 §1)
   useEffect(() => {
@@ -83,8 +91,10 @@ export function EditorPage() {
           return;
         }
         rendererRef.current = renderer;
+        // 置き直し (fit / zoom / resize) はすべてここを通る。オーバーレイの位置の唯一の出どころ
+        renderer.onView = setView;
         setReady(true);
-        installTestHook(renderer);
+        installTestHook(renderer, () => recipeRef.current);
       } catch (e) {
         // 原因を飲み込まない (CSP や WebGL の不調を切り分けられるように)
         console.error("editor renderer failed", e);
@@ -98,12 +108,11 @@ export function EditorPage() {
     };
   }, []);
 
-  // レシピ変更をレンダラへ反映
+  // レシピ変更をレンダラへ反映 (view は renderer.onView で追従する)
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || !state.source) return;
     r.setRecipe(recipe);
-    setView(r.viewRect);
   }, [recipe, state.source]);
 
   useEffect(() => {
@@ -113,8 +122,12 @@ export function EditorPage() {
   // 部分補正 (#109): 部分補正タブで選択中の範囲を赤で重ねる
   const selectedLocal =
     recipe.localAdjustments.find((l) => l.id === state.ui.local.selectedId) ?? null;
+  // 赤い重ねは、描いている間 (ブラシ・円形のドラッグ中) か「範囲を表示」をオンにしたときだけ。
+  // 常時だと補正の効きが赤に埋もれて見えない
   const maskPreviewId =
-    state.ui.tool === "local" && state.ui.local.showMask && !state.ui.comparing
+    state.ui.tool === "local" &&
+    (state.ui.local.showMask || state.ui.local.drawing) &&
+    !state.ui.comparing
       ? (selectedLocal?.id ?? null)
       : null;
   useEffect(() => {
@@ -137,44 +150,16 @@ export function EditorPage() {
       } else {
         r.panBy(-e.deltaX, -e.deltaY);
       }
-      setView(r.viewRect);
     };
     host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
   }, [state.source]);
 
-  const zoomBy = (factor: number) => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.zoomBy(factor);
-    setView(r.viewRect);
-  };
-  const zoomFit = () => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.resetView();
-    setView(r.viewRect);
-  };
-  const zoomActual = () => {
-    const r = rendererRef.current;
-    if (!r) return;
-    r.zoomToActual();
-    setView(r.viewRect);
-  };
+  const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
+  const zoomFit = () => rendererRef.current?.resetView();
+  const zoomActual = () => rendererRef.current?.zoomToActual();
   // 表示倍率 (元画像の px に対して)。デバイスの px ではなく CSS px
   const zoomPercent = Math.round(view.scale * 100);
-
-  // リサイズで枠位置を追従
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const ro = new ResizeObserver(() => {
-      const r = rendererRef.current;
-      if (r && state.source) setView(r.viewRect);
-    });
-    ro.observe(host);
-    return () => ro.disconnect();
-  }, [state.source]);
 
   // 下書きを自動保存 (レシピ確定ごと)
   useEffect(() => {
@@ -200,10 +185,7 @@ export function EditorPage() {
         draftId,
         ...(draft ? { recipe: draft.recipe } : {}),
       });
-      if (r) {
-        r.setImage(image.bitmap, draft?.recipe ?? initialEditorState.history.present);
-        setView(r.viewRect);
-      }
+      r?.setImage(image.bitmap, draft?.recipe ?? initialEditorState.history.present);
     } catch (e) {
       const reason = e instanceof ImageLoadError ? e.reason : "decode_failed";
       dispatch({ type: "image/failed", error: ERROR_TEXT[reason] ?? reason });
@@ -246,10 +228,7 @@ export function EditorPage() {
   // 画像が後から来た場合 (レンダラ初期化前に読み込んだ) の反映
   useEffect(() => {
     const r = rendererRef.current;
-    if (ready && r && state.source) {
-      r.setImage(state.source.bitmap, recipe);
-      setView(r.viewRect);
-    }
+    if (ready && r && state.source) r.setImage(state.source.bitmap, recipe);
     // recipe は setRecipe 側の effect で追従するため依存に含めない
   }, [ready, state.source]);
 
@@ -505,6 +484,7 @@ export function EditorPage() {
             state.source &&
             state.ui.tool === "local" &&
             selectedLocal?.mask.kind === "ellipse" &&
+            state.ui.local.showHandles &&
             !state.ui.comparing &&
             !state.ui.cropping && (
               <EllipseMaskOverlay
@@ -518,6 +498,7 @@ export function EditorPage() {
                 onCommit={(mask) =>
                   dispatch({ type: "local/mask-commit", id: selectedLocal.id, mask })
                 }
+                onDrawing={(on) => dispatch({ type: "ui/drawing", on })}
               />
             )}
           {hasImage &&
@@ -537,6 +518,7 @@ export function EditorPage() {
                 onCommit={(stroke) =>
                   dispatch({ type: "local/stroke-commit", id: selectedLocal.id, stroke })
                 }
+                onDrawing={(on) => dispatch({ type: "ui/drawing", on })}
               />
             )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
@@ -593,6 +575,8 @@ export function EditorPage() {
               list={recipe.localAdjustments}
               selectedId={selectedLocal?.id ?? null}
               showMask={state.ui.local.showMask}
+              showHandles={state.ui.local.showHandles}
+              onShowHandles={(on) => dispatch({ type: "ui/show-handles", on })}
               brush={state.ui.local.brush}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
               onAdd={(kind, presetId) => dispatch({ type: "local/add", kind, presetId })}
