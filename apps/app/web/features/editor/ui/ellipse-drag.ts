@@ -7,7 +7,7 @@ export type EllipseHandle = "move" | "rx" | "ry" | "rotate";
 /** 半径の下限 (幅・高さに対する比)。スキーマの gt(0) を満たしつつ、掴めなくならない程度 */
 export const MIN_RADIUS = 0.005;
 /** 回転ハンドルを楕円の上端からどれだけ離すか (px) */
-export const ROTATE_HANDLE_OFFSET_PX = 24;
+export const ROTATE_HANDLE_OFFSET_PX = 32;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
