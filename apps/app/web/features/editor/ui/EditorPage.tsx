@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import type { EditRecipe } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile } from "../load-image.ts";
@@ -11,6 +11,7 @@ import { AdjustPanel } from "./AdjustPanel.tsx";
 import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
 import { ZOOM_STEP } from "../render/viewport.ts";
+import { useCanvasGestures } from "./use-canvas-gestures.ts";
 import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
 import { BrushOverlay } from "./BrushOverlay.tsx";
@@ -134,26 +135,29 @@ export function EditorPage() {
     rendererRef.current?.setMaskPreview(maskPreviewId);
   }, [maskPreviewId, state.source]);
 
-  // ズームと移動 (docs/design/08 §3.3): Ctrl (Cmd) + ホイールとピンチで拡大縮小、ホイールで移動。
-  // preventDefault するので passive にできず、React の onWheel ではなく直接 listen する
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const onWheel = (e: WheelEvent) => {
-      const r = rendererRef.current;
-      if (!r || !state.source) return;
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        const rect = host.getBoundingClientRect();
-        const factor = Math.exp(-e.deltaY * 0.01);
-        r.zoomBy(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
-      } else {
-        r.panBy(-e.deltaX, -e.deltaY);
-      }
+  // ズームと移動 (docs/design/08 §3.3): ホイールでズーム、ドラッグで移動、2 本指でピンチ
+  const gestureTarget = useCallback(
+    () => (state.source ? rendererRef.current : null),
+    [state.source],
+  );
+  useCanvasGestures(hostRef, gestureTarget, Boolean(state.source));
+
+  /**
+   * 新しい円形を今見えている範囲の中央に置く。半径は見えている範囲の短辺の 1/4 (拡大中は小さく)、
+   * 既定 (画像の 12%) を上限にする
+   */
+  const ellipseAtView = () => {
+    const r = rendererRef.current;
+    if (!r || !state.source) return undefined;
+    const { uv, visible } = r.visibleCenter;
+    const short = Math.min(visible.width, visible.height) / 4;
+    return {
+      cx: uv.x,
+      cy: uv.y,
+      rx: Math.min(DEFAULT_ELLIPSE_MASK.rx, short / state.source.bitmap.width),
+      ry: Math.min(DEFAULT_ELLIPSE_MASK.ry, short / state.source.bitmap.height),
     };
-    host.addEventListener("wheel", onWheel, { passive: false });
-    return () => host.removeEventListener("wheel", onWheel);
-  }, [state.source]);
+  };
 
   const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
   const zoomFit = () => rendererRef.current?.resetView();
@@ -396,7 +400,7 @@ export function EditorPage() {
               className={toolBtn}
               disabled={!hasImage}
               aria-label="縮小"
-              title="縮小 (Ctrl + ホイール)"
+              title="縮小 (ホイール)"
               onClick={() => zoomBy(1 / ZOOM_STEP)}
             >
               −
@@ -416,7 +420,7 @@ export function EditorPage() {
               className={toolBtn}
               disabled={!hasImage}
               aria-label="拡大"
-              title="拡大 (Ctrl + ホイール)"
+              title="拡大 (ホイール)"
               onClick={() => zoomBy(ZOOM_STEP)}
             >
               +
@@ -460,7 +464,7 @@ export function EditorPage() {
         <div
           ref={hostRef}
           data-testid="canvas-host"
-          className="relative min-h-0 flex-1 overflow-hidden rounded bg-surface-muted"
+          className="relative min-h-0 flex-1 touch-none overflow-hidden rounded bg-surface-muted"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -519,6 +523,7 @@ export function EditorPage() {
                   dispatch({ type: "local/stroke-commit", id: selectedLocal.id, stroke })
                 }
                 onDrawing={(on) => dispatch({ type: "ui/drawing", on })}
+                onCancel={() => rendererRef.current?.discardPreviewStroke(selectedLocal.id)}
               />
             )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
@@ -579,7 +584,9 @@ export function EditorPage() {
               onShowHandles={(on) => dispatch({ type: "ui/show-handles", on })}
               brush={state.ui.local.brush}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
-              onAdd={(kind, presetId) => dispatch({ type: "local/add", kind, presetId })}
+              onAdd={(kind, presetId) =>
+                dispatch({ type: "local/add", kind, presetId, at: ellipseAtView() })
+              }
               onSelect={(id) => dispatch({ type: "local/select", id })}
               onRemove={(id) => dispatch({ type: "local/remove", id })}
               onToggleVisible={(id) => dispatch({ type: "local/toggle-visible", id })}

@@ -397,7 +397,7 @@ test.describe("editor", () => {
     await expect(page.getByTestId("ellipse-overlay")).toHaveCount(0);
   });
 
-  test("zoom: buttons, ctrl+wheel around the cursor, wheel pan, and fit; overlays follow", async ({
+  test("zoom: buttons, wheel around the cursor, drag pan, two-finger pinch, and fit; overlays follow", async ({
     page,
   }) => {
     await openEditorWithImage(page);
@@ -405,7 +405,9 @@ test.describe("editor", () => {
       page.evaluate(() =>
         (
           window as Window & {
-            __prismtoneEditor?: { viewRect: () => { x: number; scale: number; width: number } };
+            __prismtoneEditor?: {
+              viewRect: () => { x: number; y: number; scale: number; width: number };
+            };
           }
         ).__prismtoneEditor!.viewRect(),
       );
@@ -422,29 +424,114 @@ test.describe("editor", () => {
     await page.getByTestId("local-add-ellipse").click();
     const handle = page.getByTestId("ellipse-handle-move");
     const h1 = await handle.boundingBox();
-    // Ctrl + ホイールで画像の左上 (ホストの左上寄り) を軸に拡大 → 中心ハンドルは右下へ動く
-    const host = await page.getByTestId("canvas-host").boundingBox();
-    await page.mouse.move(host!.x + 10, host!.y + 10);
-    await page.keyboard.down("Control");
+    // ホイールで画像の左上寄りを軸に拡大 → 中心ハンドルは右下へ動く
+    const host = (await page.getByTestId("canvas-host").boundingBox())!;
+    await page.mouse.move(host.x + 10, host.y + 10);
     await page.mouse.wheel(0, -100);
-    await page.keyboard.up("Control");
     await expect.poll(async () => (await viewRect()).scale).toBeGreaterThan(zoomed.scale);
     const h2 = await handle.boundingBox();
     expect(h2!.x).toBeGreaterThan(h1!.x);
     expect(h2!.y).toBeGreaterThan(h1!.y);
 
-    // ホイールで移動
+    // ツールの無い場所をドラッグすると移動 (ハンドルの外、画像の上)
     const before = await viewRect();
-    await page.mouse.wheel(0, 50);
-    await expect.poll(async () => (await viewRect()).x).toBe(before.x);
-    const after = await viewRect();
-    expect(after.scale).toBe(before.scale);
+    await page.mouse.move(host.x + 40, host.y + 40);
+    await page.mouse.down();
+    await page.mouse.move(host.x + 100, host.y + 70, { steps: 4 });
+    await page.mouse.up();
+    const dragged = await viewRect();
+    expect(dragged.x - before.x).toBeCloseTo(60, 0);
+    expect(dragged.y - before.y).toBeCloseTo(30, 0);
+    expect(dragged.scale).toBe(before.scale);
+
+    // 2 本指のピンチ (タッチのポインタイベントをホストに送る) で拡大
+    await page.evaluate(() => {
+      const host = document.querySelector('[data-testid="canvas-host"]') as HTMLElement;
+      const r = host.getBoundingClientRect();
+      const ev = (type: string, id: number, x: number, y: number) =>
+        host.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId: id,
+            pointerType: "touch",
+            isPrimary: id === 1,
+            clientX: r.left + x,
+            clientY: r.top + y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      ev("pointerdown", 1, 200, 200);
+      ev("pointerdown", 2, 300, 200);
+      ev("pointermove", 1, 150, 200);
+      ev("pointermove", 2, 350, 200);
+      ev("pointerup", 1, 150, 200);
+      ev("pointerup", 2, 350, 200);
+    });
+    const pinched = await viewRect();
+    expect(pinched.scale / dragged.scale).toBeCloseTo(2, 1);
+
+    // 拡大して移動したあとに足した円形は、今見えている範囲の中央に来る (画像の中央ではない)
+    await page.getByTestId("local-add-ellipse").click();
+    const hostBox = (await page.getByTestId("canvas-host").boundingBox())!;
+    const added = (await page.getByTestId("ellipse-handle-move").boundingBox())!;
+    const v = await viewRect();
+    const visibleCx =
+      Math.max(0, v.x) + (Math.min(hostBox.width, v.x + v.width) - Math.max(0, v.x)) / 2;
+    expect(added.x + added.width / 2 - hostBox.x).toBeCloseTo(visibleCx, 0);
 
     await page.getByRole("button", { name: "フィット" }).click();
     await expect.poll(async () => (await viewRect()).scale).toBeCloseTo(fit.scale, 5);
     // 等倍
     await page.getByTestId("zoom-percent").click();
     await expect(page.getByTestId("zoom-percent")).toHaveText("100%");
+  });
+
+  test("a second finger during a brush stroke turns it into a pinch and discards the stroke", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await page.getByTestId("local-add-brush").click();
+    const scaleBefore = await page.evaluate(
+      () =>
+        (
+          window as Window & { __prismtoneEditor?: { viewRect: () => { scale: number } } }
+        ).__prismtoneEditor!.viewRect().scale,
+    );
+    await page.evaluate(() => {
+      const host = document.querySelector('[data-testid="canvas-host"]') as HTMLElement;
+      const overlay = host.querySelector('[data-testid="brush-overlay"]') as HTMLElement;
+      const r = host.getBoundingClientRect();
+      const ev = (el: HTMLElement, type: string, id: number, x: number, y: number) =>
+        el.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId: id,
+            pointerType: "touch",
+            isPrimary: id === 1,
+            button: 0,
+            clientX: r.left + x,
+            clientY: r.top + y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      ev(overlay, "pointerdown", 1, 200, 200);
+      ev(overlay, "pointermove", 1, 220, 200);
+      ev(overlay, "pointerdown", 2, 300, 200);
+      ev(overlay, "pointermove", 1, 180, 200);
+      ev(overlay, "pointermove", 2, 340, 200);
+      ev(overlay, "pointerup", 1, 180, 200);
+      ev(overlay, "pointerup", 2, 340, 200);
+    });
+    const scaleAfter = await page.evaluate(
+      () =>
+        (
+          window as Window & { __prismtoneEditor?: { viewRect: () => { scale: number } } }
+        ).__prismtoneEditor!.viewRect().scale,
+    );
+    expect(scaleAfter).toBeGreaterThan(scaleBefore);
+    // ストロークは履歴に積まれていない
+    await expect(page.getByTestId("history-last")).not.toContainText("ブラシ");
   });
 
   test("shrinking the window keeps the side panel and refits the image", async ({ page }) => {

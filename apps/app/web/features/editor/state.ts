@@ -24,6 +24,9 @@ import type { LoadedImage } from "./load-image.ts";
 
 export type Tool = "adjust" | "geometry" | "presets" | "local";
 
+/** 円形マスクの初期配置 (今見えている範囲の中央に置くため) */
+export type EllipsePlacement = { cx: number; cy: number; rx: number; ry: number };
+
 export type BrushSettings = {
   readonly mode: BrushStrokeV2["mode"];
   /** 直径。画像の長辺に対する比 */
@@ -69,7 +72,13 @@ export type EditorAction =
   | { type: "geometry/preview"; patch: Partial<GeometryV1> }
   | { type: "preset/apply"; id: string }
   | { type: "recipe/reset" }
-  | { type: "local/add"; kind: MaskV2["kind"]; presetId?: LocalPresetId | undefined }
+  | {
+      type: "local/add";
+      kind: MaskV2["kind"];
+      presetId?: LocalPresetId | undefined;
+      /** 円形の初期位置 (画像の正規化座標)。省くと画像の中央 */
+      at?: EllipsePlacement | undefined;
+    }
   | { type: "local/remove"; id: string }
   | { type: "local/select"; id: string | null }
   | { type: "local/toggle-visible"; id: string }
@@ -281,7 +290,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const base: LocalAdjustmentV2 = {
         ...DEFAULT_LOCAL_ADJUSTMENT,
         id: newLocalId(),
-        mask: action.kind === "ellipse" ? DEFAULT_ELLIPSE_MASK : DEFAULT_BRUSH_MASK,
+        mask:
+          action.kind === "ellipse"
+            ? { ...DEFAULT_ELLIPSE_MASK, ...action.at }
+            : DEFAULT_BRUSH_MASK,
       };
       const local = preset ? applyLocalPreset(base, preset) : base;
       const next = {

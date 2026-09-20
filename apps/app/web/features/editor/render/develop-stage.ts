@@ -83,6 +83,14 @@ export class DevelopStage {
     this.dirty = true;
   }
 
+  /** 描きかけを捨て、レシピにあるストロークだけでマスクを描き直す */
+  discardPreviewStroke(id: string): void {
+    const entry = this.masks.get(id);
+    if (!entry || entry.mask.kind !== "brush") return;
+    entry.texture.set(entry.mask);
+    this.dirty = true;
+  }
+
   /** 描画中のストロークをマスクに足す (レシピに入れる前のプレビュー) */
   previewStroke(id: string, stroke: BrushStrokeV2): void {
     const entry = this.masks.get(id);
