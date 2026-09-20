@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// zod 4 は JIT の可否を Function("") で探る。CSP (script-src に unsafe-eval が無い) の下では握られて動作は
+// 落ちないが、ブラウザから違反が報告され続ける (RM-30)。このスキーマはブラウザでも動くので JIT を使わない。
+// 同じ zod のインスタンスを使う server 側の検証も jitless になるが、この規模では差が出ない
+z.config({ jitless: true });
+
 // 編集レシピ。定義は docs/design/04-edit-recipe.md を正とする。
 // 変更は追加のみ。既存項目の意味・値域は変えない (ADR-0009)。
 // v1: 全体の補正と幾何。v2: 部分補正 (マスク付きの補正、#109) を追加。
