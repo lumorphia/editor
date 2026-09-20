@@ -11,6 +11,8 @@ import { AdjustPanel } from "./AdjustPanel.tsx";
 import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
 import { CropOverlay } from "./CropOverlay.tsx";
+import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
+import { LocalPanel } from "./LocalPanel.tsx";
 import { CompareSlider } from "./CompareSlider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
@@ -99,6 +101,17 @@ export function EditorPage() {
   useEffect(() => {
     rendererRef.current?.setCompare(state.ui.comparing, state.ui.comparePosition);
   }, [state.ui.comparing, state.ui.comparePosition]);
+
+  // 部分補正 (#109): 部分補正タブで選択中の範囲を赤で重ねる
+  const selectedLocal =
+    recipe.localAdjustments.find((l) => l.id === state.ui.local.selectedId) ?? null;
+  const maskPreviewId =
+    state.ui.tool === "local" && state.ui.local.showMask && !state.ui.comparing
+      ? (selectedLocal?.id ?? null)
+      : null;
+  useEffect(() => {
+    rendererRef.current?.setMaskPreview(maskPreviewId);
+  }, [maskPreviewId, state.source]);
 
   // リサイズで枠位置を追従
   useEffect(() => {
@@ -390,6 +403,25 @@ export function EditorPage() {
               onChange={(position) => dispatch({ type: "ui/compare-position", position })}
             />
           )}
+          {hasImage &&
+            state.source &&
+            state.ui.tool === "local" &&
+            selectedLocal?.mask.kind === "ellipse" &&
+            !state.ui.comparing &&
+            !state.ui.cropping && (
+              <EllipseMaskOverlay
+                view={view}
+                source={{ width: state.source.bitmap.width, height: state.source.bitmap.height }}
+                geometry={recipe.geometry}
+                mask={selectedLocal.mask}
+                onPreview={(mask) =>
+                  dispatch({ type: "local/mask-preview", id: selectedLocal.id, mask })
+                }
+                onCommit={(mask) =>
+                  dispatch({ type: "local/mask-commit", id: selectedLocal.id, mask })
+                }
+              />
+            )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
             <CropOverlay
               view={view}
@@ -409,6 +441,7 @@ export function EditorPage() {
             [
               ["presets", "プリセット"],
               ["adjust", "補正"],
+              ["local", "部分補正"],
               ["geometry", "幾何"],
             ] as const
           ).map(([tool, label]) => (
@@ -436,6 +469,27 @@ export function EditorPage() {
               adjust={recipe.adjust}
               onPreview={(key, value) => dispatch({ type: "adjust/preview", key, value })}
               onCommit={(key, value) => dispatch({ type: "adjust/commit", key, value })}
+            />
+          )}
+          {state.ui.tool === "local" && (
+            <LocalPanel
+              list={recipe.localAdjustments}
+              selectedId={selectedLocal?.id ?? null}
+              showMask={state.ui.local.showMask}
+              onAdd={(presetId) => dispatch({ type: "local/add", kind: "ellipse", presetId })}
+              onSelect={(id) => dispatch({ type: "local/select", id })}
+              onRemove={(id) => dispatch({ type: "local/remove", id })}
+              onToggleVisible={(id) => dispatch({ type: "local/toggle-visible", id })}
+              onPreset={(id, presetId) => dispatch({ type: "local/preset", id, presetId })}
+              onAmountPreview={(id, value) => dispatch({ type: "local/amount-preview", id, value })}
+              onAmountCommit={(id, value) => dispatch({ type: "local/amount-commit", id, value })}
+              onAdjustPreview={(id, key, value) =>
+                dispatch({ type: "local/adjust-preview", id, key, value })
+              }
+              onAdjustCommit={(id, key, value) =>
+                dispatch({ type: "local/adjust-commit", id, key, value })
+              }
+              onShowMask={(on) => dispatch({ type: "ui/show-mask", on })}
             />
           )}
           {state.ui.tool === "geometry" && (

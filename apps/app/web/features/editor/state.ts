@@ -1,16 +1,26 @@
 import {
+  DEFAULT_BRUSH_MASK,
+  DEFAULT_ELLIPSE_MASK,
+  DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
+  MAX_LOCAL_ADJUSTMENTS,
+  applyLocalPreset,
   applyPreset,
+  findLocalPreset,
   findPreset,
   type AdjustV1,
   type EditRecipe,
   type GeometryV1,
+  type LocalAdjustV2,
+  type LocalAdjustmentV2,
+  type LocalPresetId,
+  type MaskV2,
 } from "@prismtone/shared/recipe";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
-import { adjustLabel, geometryLabel } from "./labels.ts";
+import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
 import type { LoadedImage } from "./load-image.ts";
 
-export type Tool = "adjust" | "geometry" | "presets";
+export type Tool = "adjust" | "geometry" | "presets" | "local";
 
 export type EditorState = {
   readonly source: LoadedImage | null;
@@ -26,6 +36,11 @@ export type EditorState = {
     readonly cropping: boolean;
     readonly exporting: boolean;
     readonly error: string | null;
+    /** 部分補正 (#109) の UI 状態。selectedId はレシピに無い id を指すことがある (undo 後) ので、使う側で引き直す */
+    readonly local: {
+      readonly selectedId: string | null;
+      readonly showMask: boolean;
+    };
   };
 };
 
@@ -38,6 +53,18 @@ export type EditorAction =
   | { type: "geometry/preview"; patch: Partial<GeometryV1> }
   | { type: "preset/apply"; id: string }
   | { type: "recipe/reset" }
+  | { type: "local/add"; kind: MaskV2["kind"]; presetId?: LocalPresetId | undefined }
+  | { type: "local/remove"; id: string }
+  | { type: "local/select"; id: string | null }
+  | { type: "local/toggle-visible"; id: string }
+  | { type: "local/adjust-preview"; id: string; key: keyof LocalAdjustV2; value: number }
+  | { type: "local/adjust-commit"; id: string; key: keyof LocalAdjustV2; value: number }
+  | { type: "local/amount-preview"; id: string; value: number }
+  | { type: "local/amount-commit"; id: string; value: number }
+  | { type: "local/mask-preview"; id: string; mask: MaskV2 }
+  | { type: "local/mask-commit"; id: string; mask: MaskV2 }
+  | { type: "local/preset"; id: string; presetId: LocalPresetId }
+  | { type: "ui/show-mask"; on: boolean }
   | { type: "history/undo" }
   | { type: "history/redo" }
   | { type: "ui/tool"; tool: Tool }
@@ -59,6 +86,7 @@ export const initialEditorState: EditorState = {
     cropping: false,
     exporting: false,
     error: null,
+    local: { selectedId: null, showMask: true },
   },
 };
 
@@ -72,6 +100,88 @@ const withGeometry = (r: EditRecipe, patch: Partial<GeometryV1>): EditRecipe => 
   ...r,
   geometry: { ...r.geometry, ...patch },
 });
+
+/** 指定 id の部分補正だけ差し替えたレシピ。無ければ null */
+function withLocal(
+  r: EditRecipe,
+  id: string,
+  update: (local: LocalAdjustmentV2) => LocalAdjustmentV2,
+): EditRecipe | null {
+  const index = r.localAdjustments.findIndex((l) => l.id === id);
+  if (index < 0) return null;
+  return {
+    ...r,
+    localAdjustments: r.localAdjustments.map((l, i) => (i === index ? update(l) : l)),
+  };
+}
+
+/** 手で値を変えたらプリセットの表示は外す (全体の補正と同じ原則) */
+const withLocalValue =
+  (key: keyof LocalAdjustV2, value: number) =>
+  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({
+    ...l,
+    presetId: null,
+    adjust: { ...l.adjust, [key]: value },
+  });
+
+const withLocalAmount =
+  (value: number) =>
+  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({ ...l, amount: value });
+
+const withLocalMask =
+  (mask: MaskV2) =>
+  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({ ...l, mask });
+
+let localSeq = 0;
+/** レシピ内で一意ならよい。時刻 + 連番で、下書きから戻したものとぶつからないようにする */
+function newLocalId(): string {
+  localSeq = (localSeq + 1) % 1000;
+  return `l${Date.now().toString(36)}${localSeq.toString(36)}`;
+}
+
+/** ドラッグ中の preview / 終了時の commit を部分補正に適用する共通処理 */
+function localPreview(
+  state: EditorState,
+  id: string,
+  update: (l: LocalAdjustmentV2) => LocalAdjustmentV2,
+): EditorState {
+  const next = withLocal(state.history.present, id, update);
+  if (!next) return state;
+  return {
+    ...state,
+    dragBase: state.dragBase ?? state.history.present,
+    history: preview(state.history, next),
+  };
+}
+
+function localCommit(
+  state: EditorState,
+  id: string,
+  update: (l: LocalAdjustmentV2) => LocalAdjustmentV2,
+  label: string,
+): EditorState {
+  const base = state.dragBase ?? state.history.present;
+  const next = withLocal(base, id, update);
+  if (!next) return state;
+  return {
+    ...state,
+    dragBase: null,
+    history: commit({ ...state.history, present: base }, next, label),
+  };
+}
+
+function selectLocal(state: EditorState, selectedId: string | null): EditorState {
+  return { ...state, ui: { ...state.ui, local: { ...state.ui.local, selectedId } } };
+}
+
+/** 選択中の id がレシピから消えていたら選択を外す (undo / リセット後) */
+function reconcileSelection(state: EditorState): EditorState {
+  const { selectedId } = state.ui.local;
+  if (selectedId && !state.history.present.localAdjustments.some((l) => l.id === selectedId)) {
+    return selectLocal(state, null);
+  }
+  return state;
+}
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   const { history } = state;
@@ -131,11 +241,87 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       };
     }
     case "recipe/reset":
-      return { ...state, history: commit(history, DEFAULT_RECIPE, "全リセット") };
+      return reconcileSelection({
+        ...state,
+        history: commit(history, DEFAULT_RECIPE, "全リセット"),
+      });
     case "history/undo":
-      return { ...state, history: undo(history) };
+      return reconcileSelection({ ...state, history: undo(history) });
     case "history/redo":
-      return { ...state, history: redo(history) };
+      return reconcileSelection({ ...state, history: redo(history) });
+    case "local/add": {
+      if (history.present.localAdjustments.length >= MAX_LOCAL_ADJUSTMENTS) return state;
+      const preset = action.presetId ? findLocalPreset(action.presetId) : undefined;
+      const base: LocalAdjustmentV2 = {
+        ...DEFAULT_LOCAL_ADJUSTMENT,
+        id: newLocalId(),
+        mask: action.kind === "ellipse" ? DEFAULT_ELLIPSE_MASK : DEFAULT_BRUSH_MASK,
+      };
+      const local = preset ? applyLocalPreset(base, preset) : base;
+      const next = {
+        ...history.present,
+        localAdjustments: [...history.present.localAdjustments, local],
+      };
+      const label = preset ? `部分補正を追加: ${preset.name}` : "部分補正を追加";
+      return {
+        ...selectLocal(state, local.id),
+        history: commit(history, next, label),
+        ui: { ...state.ui, tool: "local", local: { ...state.ui.local, selectedId: local.id } },
+      };
+    }
+    case "local/remove": {
+      const list = history.present.localAdjustments;
+      const index = list.findIndex((l) => l.id === action.id);
+      if (index < 0) return state;
+      const rest = list.filter((l) => l.id !== action.id);
+      const next = { ...history.present, localAdjustments: rest };
+      const neighbour = rest[Math.min(index, rest.length - 1)]?.id ?? null;
+      return selectLocal(
+        { ...state, history: commit(history, next, "部分補正を削除") },
+        state.ui.local.selectedId === action.id ? neighbour : state.ui.local.selectedId,
+      );
+    }
+    case "local/select":
+      return selectLocal(state, action.id);
+    case "local/toggle-visible": {
+      const target = history.present.localAdjustments.find((l) => l.id === action.id);
+      if (!target) return state;
+      return localCommit(
+        state,
+        action.id,
+        (l) => ({ ...l, visible: !l.visible }),
+        target.visible ? "部分補正を隠す" : "部分補正を表示",
+      );
+    }
+    case "local/adjust-preview":
+      return localPreview(state, action.id, withLocalValue(action.key, action.value));
+    case "local/adjust-commit":
+      return localCommit(
+        state,
+        action.id,
+        withLocalValue(action.key, action.value),
+        localAdjustLabel(action.key, action.value),
+      );
+    case "local/amount-preview":
+      return localPreview(state, action.id, withLocalAmount(action.value));
+    case "local/amount-commit":
+      return localCommit(state, action.id, withLocalAmount(action.value), `効果量 ${action.value}`);
+    case "local/mask-preview":
+      return localPreview(state, action.id, withLocalMask(action.mask));
+    case "local/mask-commit":
+      return localCommit(state, action.id, withLocalMask(action.mask), "マスクを動かす");
+    case "local/preset": {
+      const preset = findLocalPreset(action.presetId);
+      if (!preset) return state;
+      return localCommit(
+        state,
+        action.id,
+        (l) => applyLocalPreset(l, preset),
+        `部分補正: ${preset.name}`,
+      );
+    }
+    case "ui/show-mask":
+      return { ...state, ui: { ...state.ui, local: { ...state.ui.local, showMask: action.on } } };
     case "ui/tool":
       return { ...state, ui: { ...state.ui, tool: action.tool } };
     case "ui/compare":

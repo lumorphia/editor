@@ -1,6 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
-import { DEFAULT_RECIPE, applyPreset, findPreset, type EditRecipe } from "@prismtone/shared/recipe";
-import { applyAdjust } from "../apps/app/web/features/editor/adjust-math.ts";
+import {
+  DEFAULT_ELLIPSE_MASK,
+  DEFAULT_LOCAL_ADJUST,
+  DEFAULT_LOCAL_ADJUSTMENT,
+  DEFAULT_RECIPE,
+  applyPreset,
+  findPreset,
+  type EditRecipe,
+} from "@prismtone/shared/recipe";
+import { applyAdjust, applyRecipeAt } from "../apps/app/web/features/editor/adjust-math.ts";
+import { login } from "./helpers.ts";
 
 // 4 色のブロックからなるテスト画像 (200x100)。左から赤・緑・青・灰
 const BLOCKS: [number, number, number][] = [
@@ -141,6 +150,134 @@ test.describe("editor", () => {
     expect(c.width).toBe(100);
     expectClose(c.pixels[0]!, BLOCKS[2]!, 2);
     expectClose(c.pixels[1]!, BLOCKS[3]!, 2);
+  });
+
+  test("a local adjustment applies inside its ellipse mask only, and follows rotation and crop (#109)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    const size = { width: 200, height: 100 };
+    // 赤ブロックの中心に半径 20px の円。ぼかし無し
+    const eye = {
+      ...DEFAULT_LOCAL_ADJUSTMENT,
+      id: "eye",
+      mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.125, cy: 0.5, rx: 0.1, ry: 0.2, feather: 0 },
+      adjust: { ...DEFAULT_LOCAL_ADJUST, exposure: 1, saturation: -50 },
+      amount: 100,
+    };
+    const recipe: EditRecipe = {
+      ...DEFAULT_RECIPE,
+      adjust: { ...DEFAULT_RECIPE.adjust, contrast: 20 },
+      localAdjustments: [eye],
+    };
+    const cpu = (rgb: [number, number, number], uv: { x: number; y: number }) =>
+      applyRecipeAt(rgb.map((v) => v / 255) as [number, number, number], uv, recipe, size).map(
+        (v) => Math.round(v * 255),
+      );
+
+    const out = await exportPixels(page, recipe, [
+      { x: 25, y: 50 }, // マスクの中心
+      { x: 75, y: 50 }, // 緑 (マスク外)
+      { x: 25, y: 5 }, // 赤だがマスクの外 (縦半径 20px)
+    ]);
+    expectClose(out.pixels[0]!, cpu(BLOCKS[0]!, { x: 0.125, y: 0.5 }), 3);
+    expectClose(out.pixels[1]!, cpu(BLOCKS[1]!, { x: 0.375, y: 0.5 }), 3);
+    expectClose(out.pixels[2]!, cpu(BLOCKS[0]!, { x: 0.125, y: 0.05 }), 3);
+    // マスク内は外と違う (補正が効いている)
+    expect(out.pixels[0]).not.toEqual(out.pixels[2]);
+
+    // 90 度回転 + 左半分をトリミングしても、同じ画素が同じ値になる。
+    // 回転後 (100x200) で赤ブロックは上端 0..50、マスクの中心は (50, 25)。crop は上半分
+    const rotated: EditRecipe = {
+      ...recipe,
+      geometry: { ...recipe.geometry, rotation: 90, crop: { x: 0, y: 0, w: 1, h: 0.5 } },
+    };
+    const r = await exportPixels(page, rotated, [
+      { x: 50, y: 25 },
+      { x: 95, y: 25 },
+    ]);
+    expect(r.width).toBe(100);
+    expect(r.height).toBe(100);
+    expectClose(r.pixels[0]!, out.pixels[0]!, 3);
+    expectClose(r.pixels[1]!, out.pixels[2]!, 3);
+
+    // 非表示なら掛からない
+    const hidden: EditRecipe = { ...recipe, localAdjustments: [{ ...eye, visible: false }] };
+    const h = await exportPixels(page, hidden, [{ x: 25, y: 50 }]);
+    expectClose(
+      h.pixels[0]!,
+      cpu(BLOCKS[0]!, { x: 0.375, y: 0.5 }).map((_, i) =>
+        Math.round(
+          applyAdjust(BLOCKS[0]!.map((v) => v / 255) as [number, number, number], recipe.adjust)[
+            i
+          ]! * 255,
+        ),
+      ),
+      3,
+    );
+  });
+
+  test("the local panel adds an ellipse, drags it, undoes, hides, and survives a redo of the export (#109)", async ({
+    page,
+  }) => {
+    // 「投稿へ」から戻ってくる導線を使うのでログインしておく
+    await login(page, "/edit");
+    await openEditorWithImage(page);
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await page.getByRole("button", { name: "瞳強調" }).click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByTestId("local-list")).toContainText("瞳強調 (円形)");
+    await expect(page.getByTestId("history-last")).toContainText("部分補正を追加: 瞳強調");
+    await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
+    await expect(page.getByTestId("local-sliders")).toBeVisible();
+
+    // 中心ハンドルを右へ 40px ドラッグすると 1 手の履歴になり、ハンドルもついてくる
+    const move = page.getByTestId("ellipse-handle-move");
+    const before = await move.boundingBox();
+    if (!before) throw new Error("no handle");
+    const cx = before.x + before.width / 2;
+    const cy = before.y + before.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 20, cy, { steps: 4 });
+    await page.mouse.move(cx + 40, cy, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("マスクを動かす");
+    const after = await move.boundingBox();
+    expect(Math.abs(after!.x - before.x - 40)).toBeLessThan(2);
+    await page.getByTestId("history-undo").click();
+    const back = await move.boundingBox();
+    expect(Math.abs(back!.x - before.x)).toBeLessThan(2);
+    await page.getByTestId("history-redo").click();
+
+    // スライダーは選択中の範囲に効く (露光量)。値の表示で確かめる
+    const exposure = page.getByTestId("local-sliders").getByLabel("露光量");
+    await exposure.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("history-last")).toContainText("部分補正: 露光量 +0.35");
+    // 手で変えたのでプリセットの強調は外れる
+    await expect(page.getByRole("button", { name: "瞳強調" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // 隠すとオーバーレイは残るが (選択中)、非表示の印になる
+    await page.getByRole("button", { name: "表示中" }).click();
+    await expect(page.getByTestId("local-list")).toContainText("非表示");
+
+    // 投稿へ → 現像をやり直す で戻っても部分補正が残っている (下書きの復元、v2 のレシピ)
+    await page.getByRole("button", { name: "投稿へ" }).click();
+    await page.waitForURL("**/edit/post");
+    await page.getByTestId("pending-image-redo-0").click();
+    await page.waitForURL(/\/edit(\?|$)/);
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByTestId("local-list")).toContainText("非表示");
+
+    // 全リセットで消える
+    await page.getByRole("button", { name: "全リセット" }).click();
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await expect(page.getByTestId("ellipse-overlay")).toHaveCount(0);
   });
 
   test("preset, undo, redo and reset drive the UI", async ({ page }) => {

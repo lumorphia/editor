@@ -2,6 +2,7 @@ import {
   LOCAL_PRESETS,
   type AdjustV1,
   type GeometryV1,
+  type LocalAdjustV2,
   type LocalAdjustmentV2,
 } from "@prismtone/shared/recipe";
 
@@ -17,11 +18,30 @@ export const ADJUST_LABELS: Readonly<Record<keyof AdjustV1, string>> = {
   saturation: "彩度",
 };
 
+/** 部分補正の項目名 (#109)。全体と同じ名前に、シャープと美肌を足す */
+export const LOCAL_ADJUST_LABELS: Readonly<Record<keyof LocalAdjustV2, string>> = {
+  exposure: "露光量",
+  contrast: "コントラスト",
+  highlights: "ハイライト",
+  shadows: "シャドウ",
+  temperature: "色温度",
+  tint: "色かぶり",
+  saturation: "彩度",
+  sharpen: "シャープ",
+  smooth: "美肌",
+};
+
 const signed = (n: number, digits = 0) => `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 
 /** 履歴に残す操作名: 「露光量 +0.30」「コントラスト -20」 */
 export function adjustLabel(key: keyof AdjustV1, value: number): string {
   return `${ADJUST_LABELS[key]} ${key === "exposure" ? signed(value, 2) : signed(value)}`;
+}
+
+/** 部分補正の操作名: 「部分補正: 露光量 +0.30」 */
+export function localAdjustLabel(key: keyof LocalAdjustV2, value: number): string {
+  const v = key === "exposure" ? signed(value, 2) : signed(value);
+  return `部分補正: ${LOCAL_ADJUST_LABELS[key]} ${v}`;
 }
 
 /** 幾何の操作名: 変えた項目から決める。複数なら先頭だけ */

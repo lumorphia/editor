@@ -1,4 +1,6 @@
-import type { AdjustV1 } from "@prismtone/shared/recipe";
+import type { AdjustV1, EditRecipe, LocalAdjustV2 } from "@prismtone/shared/recipe";
+import { ellipseMaskValue, type Point } from "./mask-math.ts";
+import type { Size } from "./render/geometry.ts";
 
 /**
  * 補正パイプラインの CPU 参照実装。
@@ -87,4 +89,30 @@ export function applyAdjust(input: RGB, adjust: AdjustV1): RGB {
   b = mix(y, b, sf);
 
   return [clamp01(r), clamp01(g), clamp01(b)];
+}
+
+/**
+ * 部分補正の色調整。全体の補正と同じ式で vibrance だけ無い (#109)。
+ * sharpen / smooth は近傍を見る処理なので、この点ごとの参照実装には含めない
+ * (E2E の判定点はマスク内の平坦部とマスク外に限る、docs/design/08 §7)
+ */
+export function applyLocalAdjust(input: RGB, adjust: LocalAdjustV2): RGB {
+  const { sharpen: _sharpen, smooth: _smooth, ...rest } = adjust;
+  return applyAdjust(input, { ...rest, vibrance: 0 });
+}
+
+/**
+ * レシピ全体を 1 画素に適用する参照実装: 全体の補正 → 部分補正を順に。
+ * uv は幾何を掛ける前の画像の正規化座標。ブラシマスクは PR3 で足す
+ */
+export function applyRecipeAt(input: RGB, uv: Point, recipe: EditRecipe, size: Size): RGB {
+  let rgb = applyAdjust(input, recipe.adjust);
+  for (const local of recipe.localAdjustments) {
+    if (!local.visible || local.mask.kind !== "ellipse") continue;
+    const m = ellipseMaskValue(uv, local.mask, size) * (local.amount / 100);
+    if (m <= 0) continue;
+    const adjusted = applyLocalAdjust(rgb, local.adjust);
+    rgb = [mix(rgb[0], adjusted[0], m), mix(rgb[1], adjusted[1], m), mix(rgb[2], adjusted[2], m)];
+  }
+  return rgb;
 }
