@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ELLIPSE_MASK, DEFAULT_LOCAL_ADJUSTMENT } from "@prismtone/shared/recipe";
-import { adjustLabel, geometryLabel, localAdjustmentsSummary } from "./labels.ts";
+import { adjustLabel, geometryLabel, localAdjustLabel, localAdjustmentsSummary } from "./labels.ts";
 
 describe("operation labels", () => {
   it("補正は項目名と符号付きの値", () => {
@@ -15,6 +15,13 @@ describe("operation labels", () => {
     expect(geometryLabel({ aspect: "3:4" })).toBe("縦横比 3:4");
     expect(geometryLabel({ crop: null })).toBe("トリミングを解除");
     expect(geometryLabel({})).toBe("幾何の変更");
+  });
+});
+
+describe("localAdjustLabel (#109)", () => {
+  it("prefixes the item with 部分補正 and formats exposure to two decimals", () => {
+    expect(localAdjustLabel("exposure", 0.35)).toBe("部分補正: 露光量 +0.35");
+    expect(localAdjustLabel("shadows", -20)).toBe("部分補正: シャドウ -20");
   });
 });
 

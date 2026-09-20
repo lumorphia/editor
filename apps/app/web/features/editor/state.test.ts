@@ -192,4 +192,11 @@ describe("editorReducer: 部分補正 (#109)", () => {
     });
     expect(s).toBe(withOne);
   });
+
+  it("ui/show-mask turns the mask overlay on and off without touching the recipe", () => {
+    const off = editorReducer(withOne, { type: "ui/show-mask", on: false });
+    expect(off.ui.local.showMask).toBe(false);
+    expect(off.history).toBe(withOne.history);
+    expect(editorReducer(off, { type: "ui/show-mask", on: true }).ui.local.showMask).toBe(true);
+  });
 });
