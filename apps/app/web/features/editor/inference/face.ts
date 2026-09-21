@@ -17,9 +17,10 @@ let seq = 0;
 
 function getWorker(): Worker {
   if (!worker) {
-    // classic worker (Vite が iife に束ねる)。MediaPipe の WASM ローダーは importScripts で
-    // vision_wasm_internal.js を読むので、module worker だと "ModuleFactory not set" で落ちる
-    worker = new Worker(new URL("./face.worker.ts", import.meta.url));
+    // module worker (dev の Vite は classic worker に import 文を残すので動かない)。MediaPipe は
+    // module worker では WASM ローダーを import() で読み、そのままだと "ModuleFactory not set" になる。
+    // fetch-models.ts がローダーの末尾に self.ModuleFactory = ModuleFactory を足して通している
+    worker = new Worker(new URL("./face.worker.ts", import.meta.url), { type: "module" });
   }
   return worker;
 }

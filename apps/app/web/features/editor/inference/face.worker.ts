@@ -98,6 +98,11 @@ async function fetchWithProgress(
 function load(confidence: number, onProgress: (loaded: number) => void): Promise<FaceLandmarker> {
   if (landmarker) return Promise.resolve(landmarker);
   if (loading) return loading;
+  // module worker では MediaPipe が WASM ローダーを self.import ?? import() で読む。dev の Vite は
+  // 素の import() に ?import を足して public のファイルを「URL を export するモジュール」に変えて
+  // しまうので、Vite の書き換えを避けた import を渡す (本番ビルドでは同じ動き)
+  (self as unknown as { import?: (url: string) => Promise<unknown> }).import = (url) =>
+    import(/* @vite-ignore */ url);
   loading = (async () => {
     const model = await fetchWithProgress(`${FACE_MODEL_BASE}/face_landmarker.task`, onProgress);
     const vision = await FilesetResolver.forVisionTasks(`${FACE_MODEL_BASE}/wasm`);

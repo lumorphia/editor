@@ -1,5 +1,5 @@
 /**
- * ブラウザ内の認識 (ADR-0025) に使うモデルと WASM を public/models/<name>-v<n>/ に揃える。
+ * ブラウザ内の認識 (ADR-0025) に使うモデルと WASM を apps/app/models/<name>-v<n>/ に揃える。
  * dev と build の前に走る (package.json)。git には入れない (.gitignore)。
  *
  * - ダウンロードするものは URL と sha256 を固定する。ハッシュが合わなければ捨てて失敗する
@@ -8,16 +8,20 @@
  * - 既にあってハッシュが合えば何もしない (2 回目以降は一瞬で終わる)
  */
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const out = path.join(root, "public", "models");
+/** public/ ではなく models/ に置き、/models/ は Fastify の static で配る (server/plugins/models.ts)。
+ * public/ に置くと dev の Vite が import() に ?import を足して「URL を export するモジュール」に変え、
+ * MediaPipe の WASM ローダーが読めない */
+export const MODELS_DIR = path.join(root, "models");
+const out = MODELS_DIR;
 
 type Download = { kind: "download"; to: string; url: string; sha256: string };
-type Copy = { kind: "copy"; to: string; from: string };
+type Copy = { kind: "copy"; to: string; from: string; prepend?: string; append?: string };
 
-/** 配るもの。to は public/models/ からの相対パス */
+/** 配るもの。to は models/ からの相対パス */
 const ASSETS: (Download | Copy)[] = [
   // MediaPipe Face Landmarker (瞳・顔、#176)。Apache-2.0
   {
@@ -35,6 +39,18 @@ const ASSETS: (Download | Copy)[] = [
     kind: "copy",
     to: `face-landmarker-v1/wasm/${f}`,
     from: path.join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm", f),
+    // ローダー (.js) は classic script (sloppy mode) 前提。module worker からは MediaPipe が import() で
+    // 読む (importScripts が使えない) ので、ES module (strict mode) でも動くように 2 か所を補う:
+    // - `var ModuleFactory` は module スコープに閉じるので、末尾で self に出す
+    // - if ブロック内の `function custom_dbg` は strict では外に見えないので、先頭で self に置く
+    // classic worker (importScripts) で読んでも害はない
+    ...(f.endsWith(".js")
+      ? {
+          prepend:
+            'if (typeof self.custom_dbg === "undefined") self.custom_dbg = (...a) => console.warn(...a);\n',
+          append: "\n;self.ModuleFactory = ModuleFactory;\n",
+        }
+      : {}),
   })),
   // SlimSAM (装備・人物の切り抜き、#177)。Xenova/slimsam-77-uniform の q8。Apache-2.0
   ...(
@@ -96,11 +112,18 @@ async function download(asset: Download): Promise<void> {
 
 async function copy(asset: Copy): Promise<void> {
   const target = path.join(out, asset.to);
-  const [a, b] = await Promise.all([sha256(target), sha256(asset.from)]);
-  if (b === null) throw new Error(`models: missing ${asset.from} (pnpm install を先に)`);
-  if (a === b) return;
+  let body: Buffer;
+  try {
+    body = await readFile(asset.from);
+  } catch {
+    throw new Error(`models: missing ${asset.from} (pnpm install を先に)`);
+  }
+  if (asset.prepend) body = Buffer.concat([Buffer.from(asset.prepend), body]);
+  if (asset.append) body = Buffer.concat([body, Buffer.from(asset.append)]);
+  const want = createHash("sha256").update(body).digest("hex");
+  if ((await sha256(target)) === want) return;
   await mkdir(path.dirname(target), { recursive: true });
-  await copyFile(asset.from, target);
+  await writeFile(target, body);
 }
 
 await mkdir(out, { recursive: true });
@@ -108,7 +131,7 @@ for (const asset of ASSETS) {
   if (asset.kind === "download") await download(asset);
   else await copy(asset);
 }
-// public/ の中で git に入れないことを、ディレクトリ自身にも書いておく
+// git に入れないことを、ディレクトリ自身にも書いておく
 try {
   await access(path.join(out, ".gitignore"));
 } catch {
