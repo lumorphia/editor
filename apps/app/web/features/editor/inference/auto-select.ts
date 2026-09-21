@@ -1,6 +1,7 @@
-import type { LocalPresetId } from "@prismtone/shared/recipe";
+import type { BitmapMaskV3, LocalPresetId } from "@prismtone/shared/recipe";
 import type { AutoLocalItem } from "../state.ts";
 import { facePolygon, irisEllipses, pickMainFace, type FaceResult } from "./face-masks.ts";
+import { GEAR_LEVEL, PERSON_LEVEL } from "./segment-masks.ts";
 
 /**
  * 自動選択 (#176) の計画: 検出結果から「何を足すか」と「利用者に伝える一言」を決める純関数。
@@ -38,5 +39,35 @@ export function planFaceSelection(
     items: ellipses.map((mask) => ({ presetId: "eyes", mask })),
     label: "瞳強調 (自動)",
     notice: ellipses.length === 1 ? ONE_EYE_CLOSED : null,
+  };
+}
+
+/** タップで切る対象 (#177)。gear は装備強調、person / background はプリセット無しの範囲 */
+export type SegmentSelectionKind = "gear" | "person" | "background";
+
+export const SEGMENT_KIND_LABELS: Record<SegmentSelectionKind, string> = {
+  gear: "装備強調 (自動)",
+  person: "キャラクター",
+  background: "背景",
+};
+
+/** SAM の 3 段のマスクから何を足すか。gear は index 1 (装備 1 点)、person / background は index 0 (全体) */
+export function planSegmentSelection(
+  kind: SegmentSelectionKind,
+  masks: readonly BitmapMaskV3[],
+): SelectionPlan {
+  const level = kind === "gear" ? GEAR_LEVEL : PERSON_LEVEL;
+  const mask = masks[level];
+  if (!mask) return { items: [], label: "", notice: AUTO_SELECT_FAILED };
+  if (kind === "gear") {
+    return { items: [{ presetId: "gear", mask }], label: SEGMENT_KIND_LABELS.gear, notice: null };
+  }
+  const name = SEGMENT_KIND_LABELS[kind];
+  return {
+    items: [
+      { presetId: null, name, mask: kind === "background" ? { ...mask, invert: true } : mask },
+    ],
+    label: `${name}を選択`,
+    notice: null,
   };
 }

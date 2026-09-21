@@ -16,8 +16,16 @@ import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
 import { BrushOverlay } from "./BrushOverlay.tsx";
 import { LocalPanel } from "./LocalPanel.tsx";
-import { AUTO_SELECT_FAILED, planFaceSelection } from "../inference/auto-select.ts";
+import {
+  AUTO_SELECT_FAILED,
+  planFaceSelection,
+  planSegmentSelection,
+  type SegmentSelectionKind,
+} from "../inference/auto-select.ts";
 import type { FaceResult } from "../inference/face-masks.ts";
+import { SAM_LEVELS } from "../inference/segment-masks.ts";
+import { TapOverlay } from "./TapOverlay.tsx";
+import type { Point } from "../mask-math.ts";
 import { CompareSlider } from "./CompareSlider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
@@ -164,10 +172,29 @@ export function EditorPage() {
   // 自動選択 (#176): 顔の検出結果は画像 (draftId) ごとに 1 回だけ取り、瞳・美肌で使い回す。
   // 検出のライブラリ (WASM) は押したときに動的 import する (現像の初期表示に載せない)
   const facesRef = useRef<{ draftId: string; faces: FaceResult[] } | null>(null);
-  const autoSelect = async (kind: "eyes" | "skin") => {
+  const autoSelect = async (kind: "eyes" | "skin" | SegmentSelectionKind) => {
     const source = state.source;
     const draftId = state.draftId;
     if (!source || !draftId || state.ui.local.inference.status !== "idle") return;
+    if (kind === "gear" || kind === "person" || kind === "background") {
+      // タップで切る (#177): 画像の埋め込み (初回は数秒) を済ませてからタップを待つ
+      dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
+      try {
+        const { prepareSegmenter } = await import("../inference/segment.ts");
+        await prepareSegmenter(source.bitmap, {
+          onProgress: (progress) =>
+            dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
+        });
+      } catch (e) {
+        console.error("segmenter failed", e);
+        dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+        dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+        return;
+      }
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+      dispatch({ type: "ui/tap", tap: kind });
+      return;
+    }
     let faces = facesRef.current?.draftId === draftId ? facesRef.current.faces : null;
     if (!faces) {
       dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
@@ -191,6 +218,52 @@ export function EditorPage() {
       dispatch({ type: "local/add-auto", items: plan.items, label: plan.label });
     }
     if (plan.notice) dispatch({ type: "ui/notice", notice: plan.notice });
+  };
+
+  const onTap = async (uv: Point) => {
+    const kind = state.ui.local.tap;
+    if (!kind) return;
+    dispatch({ type: "ui/inference", inference: { status: "running", progress: null } });
+    try {
+      const { segmentAt } = await import("../inference/segment.ts");
+      const { masks } = await segmentAt(uv.x, uv.y);
+      const plan = planSegmentSelection(kind, masks);
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+      if (plan.items.length > 0) {
+        dispatch({
+          type: "local/add-auto",
+          items: plan.items,
+          label: plan.label,
+          candidates: masks,
+        });
+      } else {
+        dispatch({ type: "ui/tap", tap: null });
+      }
+      if (plan.notice) dispatch({ type: "ui/notice", notice: plan.notice });
+    } catch (e) {
+      console.error("segmentation failed", e);
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+      dispatch({ type: "ui/tap", tap: null });
+      dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+    }
+  };
+  const onSegmentLevel = (localId: string, index: number) => {
+    const candidate = state.ui.local.segment?.masks[index];
+    const target = recipe.localAdjustments.find((l) => l.id === localId);
+    if (!candidate || !target || target.mask.kind !== "bitmap") return;
+    // 反転 (背景) と塗り足したストロークは保ったまま、下地だけ差し替える
+    const mask = {
+      ...candidate,
+      ...(candidate.kind === "bitmap"
+        ? { invert: target.mask.invert, strokes: target.mask.strokes }
+        : {}),
+    };
+    dispatch({
+      type: "local/mask-commit",
+      id: localId,
+      mask,
+      label: `切り抜き: ${SAM_LEVELS[index]?.label ?? index}`,
+    });
   };
 
   const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
@@ -561,6 +634,22 @@ export function EditorPage() {
                 onCancel={() => rendererRef.current?.discardPreviewStroke(selectedLocal.id)}
               />
             )}
+          {hasImage &&
+            state.source &&
+            state.ui.tool === "local" &&
+            state.ui.local.tap &&
+            !state.ui.cropping && (
+              <TapOverlay
+                view={view}
+                source={{ width: state.source.bitmap.width, height: state.source.bitmap.height }}
+                geometry={recipe.geometry}
+                hint={
+                  state.ui.local.tap === "gear" ? "切りたい装備をタップ" : "キャラクターをタップ"
+                }
+                onTap={(uv) => void onTap(uv)}
+                onCancel={() => dispatch({ type: "ui/tap", tap: null })}
+              />
+            )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
             <CropOverlay
               view={view}
@@ -620,7 +709,11 @@ export function EditorPage() {
               brush={state.ui.local.brush}
               inference={state.ui.local.inference}
               notice={state.ui.local.notice}
+              tap={state.ui.local.tap}
+              segment={state.ui.local.segment}
               onAuto={(kind) => void autoSelect(kind)}
+              onCancelTap={() => dispatch({ type: "ui/tap", tap: null })}
+              onSegmentLevel={onSegmentLevel}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
               onAdd={(kind, presetId) =>
                 dispatch({ type: "local/add", kind, presetId, at: ellipseAtView() })

@@ -7,7 +7,9 @@ import {
   type LocalPresetId,
 } from "@prismtone/shared/recipe";
 import { LOCAL_ADJUST_LABELS } from "../labels.ts";
-import type { BrushSettings, InferenceStatus } from "../state.ts";
+import type { BrushSettings, EditorState, InferenceStatus } from "../state.ts";
+import type { SegmentSelectionKind } from "../inference/auto-select.ts";
+import { SAM_LEVELS } from "../inference/segment-masks.ts";
 import { Slider } from "./Slider.tsx";
 
 type Props = {
@@ -18,9 +20,15 @@ type Props = {
   brush: BrushSettings;
   inference: InferenceStatus;
   notice: string | null;
+  /** タップ待ち (#177) と、直近のタップの 3 段の候補 */
+  tap: SegmentSelectionKind | null;
+  segment: EditorState["ui"]["local"]["segment"];
   onAdd: (kind: "ellipse" | "brush", presetId?: LocalPresetId) => void;
-  /** 瞳・美肌: 顔を検出してマスクを自動で置く (#176)。無ければ手動の追加に落ちる */
-  onAuto?: ((presetId: "eyes" | "skin") => void) | undefined;
+  /** 瞳・美肌は顔を検出して置く (#176)、装備・キャラクター・背景はタップで切る (#177)。無ければ手動の追加に落ちる */
+  onAuto?: ((kind: "eyes" | "skin" | SegmentSelectionKind) => void) | undefined;
+  onCancelTap?: (() => void) | undefined;
+  /** 切り抜きの粒度を切り替える (segment の候補の index) */
+  onSegmentLevel?: ((localId: string, index: number) => void) | undefined;
   onBrush: (brush: BrushSettings) => void;
   onSelect: (id: string | null) => void;
   onRemove: (id: string) => void;
@@ -55,6 +63,11 @@ const MASK_KIND_LABELS: Record<LocalAdjustment["mask"]["kind"], string> = {
   polygon: "多角形",
   bitmap: "切り抜き",
 };
+
+/** 粒度の切り替えで下地だけ差し替えるので、反転やストロークが違っても同じ候補なら同じとみなす */
+function isSameBitmap(a: LocalAdjustment["mask"], b: LocalAdjustment["mask"] | undefined): boolean {
+  return a.kind === "bitmap" && b?.kind === "bitmap" && a.rle === b.rle;
+}
 
 function localName(l: LocalAdjustment, index: number): string {
   if (l.name) return l.name;
@@ -208,7 +221,7 @@ export function LocalPanel(p: Props) {
           {selected
             ? "選択中の範囲に適用"
             : p.onAuto
-              ? "瞳・美肌は顔を認識して置きます (装備はブラシで塗る)"
+              ? "瞳・美肌は顔を認識して置き、装備は画像をタップして切り抜きます"
               : "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)"}
         </p>
         <div className="grid grid-cols-3 gap-2">
@@ -222,7 +235,7 @@ export function LocalPanel(p: Props) {
               disabled={(!selected && full) || busy}
               onClick={() => {
                 if (selected) return p.onPreset(selected.id, preset.id);
-                if (p.onAuto && preset.id !== "gear") return p.onAuto(preset.id);
+                if (p.onAuto) return p.onAuto(preset.id);
                 p.onAdd(preset.id === "gear" ? "brush" : "ellipse", preset.id);
               }}
             >
@@ -230,11 +243,61 @@ export function LocalPanel(p: Props) {
             </button>
           ))}
         </div>
+        {p.onAuto && !selected && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-muted">タップで範囲だけ選ぶ:</span>
+            <button
+              type="button"
+              className={btn}
+              disabled={full || busy}
+              onClick={() => p.onAuto?.("person")}
+              data-testid="local-auto-person"
+            >
+              キャラクター
+            </button>
+            <button
+              type="button"
+              className={btn}
+              disabled={full || busy}
+              onClick={() => p.onAuto?.("background")}
+              data-testid="local-auto-background"
+            >
+              背景
+            </button>
+          </div>
+        )}
+        {p.tap && (
+          <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="tap-status">
+            画像の中の{p.tap === "gear" ? "装備" : "キャラクター"}をタップしてください
+            <button type="button" className={btn + " ml-2"} onClick={() => p.onCancelTap?.()}>
+              やめる
+            </button>
+          </p>
+        )}
+        {selected && p.segment?.localId === selected.id && p.onSegmentLevel && (
+          <div className="mt-2 flex items-center gap-2" data-testid="segment-levels">
+            <span className="text-xs text-ink-muted">切り抜きの範囲:</span>
+            {SAM_LEVELS.map((level) => (
+              <button
+                key={level.index}
+                type="button"
+                className={btn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
+                title={level.hint}
+                aria-pressed={isSameBitmap(selected.mask, p.segment?.masks[level.index])}
+                onClick={() => p.onSegmentLevel?.(selected.id, level.index)}
+              >
+                {level.label}
+              </button>
+            ))}
+          </div>
+        )}
         {busy && (
           <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="inference-status">
             {p.inference.status === "loading" && p.inference.progress
               ? `認識用のデータを読み込んでいます (${Math.round((p.inference.progress.loaded / p.inference.progress.total) * 100)}%)`
-              : "顔を認識しています…"}
+              : p.inference.status === "loading"
+                ? "認識の準備をしています…"
+                : "画像を読み取っています…"}
           </p>
         )}
         {p.notice && !busy && (

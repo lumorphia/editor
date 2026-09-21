@@ -198,6 +198,27 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(s.ui.local.notice).toBeNull();
   });
 
+  it("keeps the segmentation candidates while their adjustment exists, and lets the mask be swapped with a label", () => {
+    const masks = [
+      { ...DEFAULT_ELLIPSE_MASK, cx: 0.1 },
+      { ...DEFAULT_ELLIPSE_MASK, cx: 0.2 },
+    ];
+    let s = editorReducer(withOne, { type: "ui/tap", tap: "gear" });
+    expect(s.ui.local.tap).toBe("gear");
+    s = editorReducer(s, { type: "ui/segment", segment: { localId: id, masks } });
+    s = editorReducer(s, { type: "ui/tap", tap: null });
+    s = editorReducer(s, {
+      type: "local/mask-commit",
+      id,
+      mask: masks[1]!,
+      label: "切り抜き: 全体",
+    });
+    expect(s.history.pastLabels.at(-1)).toBe("切り抜き: 全体");
+    expect(s.ui.local.segment?.localId).toBe(id);
+    s = editorReducer(s, { type: "local/remove", id });
+    expect(s.ui.local.segment).toBeNull();
+  });
+
   it("gives each adjustment a distinct id", () => {
     let s = withOne;
     s = editorReducer(s, { type: "local/add", kind: "ellipse" });
