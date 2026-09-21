@@ -11,6 +11,7 @@ import type { BrushSettings, EditorState, InferenceStatus } from "../state.ts";
 import type { SegmentSelectionKind } from "../inference/auto-select.ts";
 import { SAM_LEVELS } from "../inference/segment-masks.ts";
 import { Slider } from "./Slider.tsx";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type Props = {
   list: readonly LocalAdjustment[];
@@ -78,6 +79,7 @@ function localName(l: LocalAdjustment, index: number): string {
 
 /** 部分補正のパネル (#109): 一覧、追加 (円形 / ブラシ)、ブラシの設定、プリセット、効果量とスライダー */
 export function LocalPanel(p: Props) {
+  const { t, tx } = useI18n();
   const selected = p.list.find((l) => l.id === p.selectedId) ?? null;
   const full = p.list.length >= MAX_LOCAL_ADJUSTMENTS;
   const busy = p.inference.status !== "idle";
@@ -91,7 +93,7 @@ export function LocalPanel(p: Props) {
           onClick={() => p.onAdd("ellipse")}
           data-testid="local-add-ellipse"
         >
-          円形を追加
+          {t("円形を追加", "Add ellipse")}
         </button>
         <button
           type="button"
@@ -100,7 +102,7 @@ export function LocalPanel(p: Props) {
           onClick={() => p.onAdd("brush")}
           data-testid="local-add-brush"
         >
-          ブラシを追加
+          {t("ブラシを追加", "Add brush")}
         </button>
         <span className="text-xs text-ink-muted">
           {p.list.length} / {MAX_LOCAL_ADJUSTMENTS}
@@ -112,23 +114,29 @@ export function LocalPanel(p: Props) {
             checked={p.showMask}
             onChange={(e) => p.onShowMask(e.currentTarget.checked)}
           />
-          範囲を表示
+          {t("範囲を表示", "Show mask")}
         </label>
         <label
           className="flex items-center gap-1 text-xs text-ink-muted"
-          title="円形の輪郭とハンドル。オフの間は動かせない"
+          title={t(
+            "円形の輪郭とハンドル。オフの間は動かせない",
+            "Ellipse outline and handles. Turn on to reposition it.",
+          )}
         >
           <input
             type="checkbox"
             checked={p.showHandles}
             onChange={(e) => p.onShowHandles(e.currentTarget.checked)}
           />
-          枠を表示
+          {t("枠を表示", "Show handles")}
         </label>
       </div>
       {p.list.length === 0 ? (
         <p className="text-xs text-ink-muted">
-          範囲を選んで、そこだけに補正を掛けます。「円形を追加」で始めるか、プリセットを選んでください。
+          {t(
+            "範囲を選んで、そこだけに補正を掛けます。「円形を追加」で始めるか、プリセットを選んでください。",
+            "Select an area to adjust only that part. Add an ellipse or choose a preset to begin.",
+          )}
         </p>
       ) : (
         <ul
@@ -155,18 +163,18 @@ export function LocalPanel(p: Props) {
                 type="button"
                 className={btn}
                 aria-pressed={l.visible}
-                title={l.visible ? "隠す" : "表示する"}
+                title={l.visible ? t("隠す", "Hide") : t("表示する", "Show")}
                 onClick={() => p.onToggleVisible(l.id)}
               >
-                {l.visible ? "表示中" : "非表示"}
+                {l.visible ? t("表示中", "Visible") : t("非表示", "Hidden")}
               </button>
               <button
                 type="button"
                 className={btn}
-                aria-label={`${localName(l, i)} を削除`}
+                aria-label={t(`${localName(l, i)} を削除`, `Delete ${tx(localName(l, i))}`)}
                 onClick={() => p.onRemove(l.id)}
               >
-                削除
+                {t("削除", "Delete")}
               </button>
             </li>
           ))}
@@ -175,7 +183,9 @@ export function LocalPanel(p: Props) {
       {selected && selected.mask.kind !== "ellipse" && (
         <div className="space-y-2 rounded border border-line-soft p-2" data-testid="brush-settings">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-ink-muted">キャンバスをなぞって範囲を塗る</span>
+            <span className="text-xs text-ink-muted">
+              {t("キャンバスをなぞって範囲を塗る", "Paint an area on the canvas")}
+            </span>
             <span className="flex-1" />
             {(
               [
@@ -190,12 +200,12 @@ export function LocalPanel(p: Props) {
                 aria-pressed={p.brush.mode === mode}
                 onClick={() => p.onBrush({ ...p.brush, mode })}
               >
-                {label}
+                {label === "塗る" ? t("塗る", "Paint") : t("消す", "Erase")}
               </button>
             ))}
           </div>
           <Slider
-            label="サイズ"
+            label={t("サイズ", "Size")}
             value={Math.round(p.brush.size * 100)}
             min={1}
             max={50}
@@ -205,7 +215,7 @@ export function LocalPanel(p: Props) {
             onCommit={(v) => p.onBrush({ ...p.brush, size: v / 100 })}
           />
           <Slider
-            label="硬さ"
+            label={t("硬さ", "Hardness")}
             value={Math.round(p.brush.hardness * 100)}
             min={0}
             max={100}
@@ -219,10 +229,16 @@ export function LocalPanel(p: Props) {
       <div>
         <p className="mb-1 text-xs text-ink-muted">
           {selected
-            ? "選択中の範囲に適用"
+            ? t("選択中の範囲に適用", "Apply to selected area")
             : p.onAuto
-              ? "瞳・美肌は顔を認識して置き、装備は画像をタップして切り抜きます"
-              : "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)"}
+              ? t(
+                  "瞳・美肌は顔を認識して置き、装備は画像をタップして切り抜きます",
+                  "Eyes and skin use face detection; tap the image to select gear.",
+                )
+              : t(
+                  "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)",
+                  "Add a new mask (ellipse for eyes or skin, brush for gear)",
+                )}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {LOCAL_PRESETS.map((preset) => (
@@ -231,7 +247,7 @@ export function LocalPanel(p: Props) {
               type="button"
               className={btn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
               aria-pressed={selected?.presetId === preset.id}
-              title={preset.hint}
+              title={tx(preset.hint)}
               disabled={(!selected && full) || busy}
               onClick={() => {
                 if (selected) return p.onPreset(selected.id, preset.id);
@@ -239,13 +255,15 @@ export function LocalPanel(p: Props) {
                 p.onAdd(preset.id === "gear" ? "brush" : "ellipse", preset.id);
               }}
             >
-              {preset.name}
+              {tx(preset.name)}
             </button>
           ))}
         </div>
         {p.onAuto && !selected && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-ink-muted">タップで範囲だけ選ぶ:</span>
+            <span className="text-xs text-ink-muted">
+              {t("タップで範囲だけ選ぶ:", "Select an area by tapping:")}
+            </span>
             <button
               type="button"
               className={btn}
@@ -253,7 +271,7 @@ export function LocalPanel(p: Props) {
               onClick={() => p.onAuto?.("person")}
               data-testid="local-auto-person"
             >
-              キャラクター
+              {t("キャラクター", "Character")}
             </button>
             <button
               type="button"
@@ -262,31 +280,36 @@ export function LocalPanel(p: Props) {
               onClick={() => p.onAuto?.("background")}
               data-testid="local-auto-background"
             >
-              背景
+              {t("背景", "Background")}
             </button>
           </div>
         )}
         {p.tap && (
           <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="tap-status">
-            画像の中の{p.tap === "gear" ? "装備" : "キャラクター"}をタップしてください
+            {t(
+              `画像の中の${p.tap === "gear" ? "装備" : "キャラクター"}をタップしてください`,
+              `Tap the ${p.tap === "gear" ? "gear" : "character"} in the image`,
+            )}
             <button type="button" className={btn + " ml-2"} onClick={() => p.onCancelTap?.()}>
-              やめる
+              {t("やめる", "Cancel")}
             </button>
           </p>
         )}
         {selected && p.segment?.localId === selected.id && p.onSegmentLevel && (
           <div className="mt-2 flex items-center gap-2" data-testid="segment-levels">
-            <span className="text-xs text-ink-muted">切り抜きの範囲:</span>
+            <span className="text-xs text-ink-muted">
+              {t("切り抜きの範囲:", "Selection scope:")}
+            </span>
             {SAM_LEVELS.map((level) => (
               <button
                 key={level.index}
                 type="button"
                 className={btn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
-                title={level.hint}
+                title={tx(level.hint)}
                 aria-pressed={isSameBitmap(selected.mask, p.segment?.masks[level.index])}
                 onClick={() => p.onSegmentLevel?.(selected.id, level.index)}
               >
-                {level.label}
+                {tx(level.label)}
               </button>
             ))}
           </div>
@@ -294,22 +317,25 @@ export function LocalPanel(p: Props) {
         {busy && (
           <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="inference-status">
             {p.inference.status === "loading" && p.inference.progress
-              ? `認識用のデータを読み込んでいます (${Math.round((p.inference.progress.loaded / p.inference.progress.total) * 100)}%)`
+              ? t(
+                  `認識用のデータを読み込んでいます (${Math.round((p.inference.progress.loaded / p.inference.progress.total) * 100)}%)`,
+                  `Loading detection data (${Math.round((p.inference.progress.loaded / p.inference.progress.total) * 100)}%)`,
+                )
               : p.inference.status === "loading"
-                ? "認識の準備をしています…"
-                : "画像を読み取っています…"}
+                ? t("認識の準備をしています…", "Preparing detection…")
+                : t("画像を読み取っています…", "Analyzing image…")}
           </p>
         )}
         {p.notice && !busy && (
           <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="local-notice">
-            {p.notice}
+            {tx(p.notice)}
           </p>
         )}
       </div>
       {selected && (
         <div className="space-y-2" data-testid="local-sliders">
           <Slider
-            label="効果量"
+            label={t("効果量", "Amount")}
             value={selected.amount}
             min={0}
             max={100}
@@ -321,7 +347,7 @@ export function LocalPanel(p: Props) {
           {ROWS.map((r) => (
             <Slider
               key={r.key}
-              label={LOCAL_ADJUST_LABELS[r.key]}
+              label={tx(LOCAL_ADJUST_LABELS[r.key])}
               value={selected.adjust[r.key]}
               min={r.min}
               max={r.max}

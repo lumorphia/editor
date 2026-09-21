@@ -1,6 +1,7 @@
 import type { AdjustV1 } from "@prismtone/shared/recipe";
 import { ADJUST_LABELS } from "../labels.ts";
 import { Slider } from "./Slider.tsx";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type Props = {
   adjust: AdjustV1;
@@ -27,12 +28,13 @@ const ROWS: {
 ];
 
 export function AdjustPanel({ adjust, onPreview, onCommit }: Props) {
+  const { tx } = useI18n();
   return (
     <div className="space-y-2">
       {ROWS.map((r) => (
         <Slider
           key={r.key}
-          label={r.label}
+          label={tx(r.label)}
           value={adjust[r.key]}
           min={r.min}
           max={r.max}

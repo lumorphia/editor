@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type View = { x: number; y: number; width: number; height: number };
 
@@ -15,6 +16,7 @@ export function CompareSlider({
   position: number;
   onChange: (position: number) => void;
 }) {
+  const { t } = useI18n();
   const dragging = useRef(false);
   const toPosition = (clientX: number, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
@@ -46,13 +48,13 @@ export function CompareSlider({
         className="pointer-events-none absolute top-2 left-2 rounded bg-black/55 px-1.5 py-0.5 text-xs text-white"
         aria-hidden="true"
       >
-        元画像
+        {t("元画像", "Original")}
       </span>
       <span
         className="pointer-events-none absolute top-2 right-2 rounded bg-black/55 px-1.5 py-0.5 text-xs text-white"
         aria-hidden="true"
       >
-        現像後
+        {t("現像後", "Edited")}
       </span>
       <div
         className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
@@ -69,7 +71,10 @@ export function CompareSlider({
         max={1000}
         value={Math.round(position * 1000)}
         onChange={(e) => onChange(Number(e.currentTarget.value) / 1000)}
-        aria-label="比較の境界 (左が元画像、右が現像後)"
+        aria-label={t(
+          "比較の境界 (左が元画像、右が現像後)",
+          "Comparison boundary (original on left, edited on right)",
+        )}
         className="absolute inset-x-0 bottom-0 h-6 w-full cursor-ew-resize opacity-0"
         data-testid="compare-range"
       />
