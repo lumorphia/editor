@@ -801,8 +801,10 @@ test.describe("editor", () => {
       .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
     await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
     await page.getByRole("tab", { name: "部分補正" }).click();
+    // /edit は COOP + COEP credentialless で cross-origin isolated (#182)。SharedArrayBuffer が使えて ORT がマルチスレッドになる
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
 
-    // 装備強調: モデルの読み込みと埋め込み (シングルスレッドの WASM で 10 秒前後) のあとタップ待ちになる
+    // 装備強調: モデルの読み込みと埋め込み (マルチスレッドの WASM で 3〜4 秒) のあとタップ待ちになる
     await page.getByRole("button", { name: "装備強調" }).click();
     await expect(page.getByTestId("tap-overlay")).toBeVisible({ timeout: 120_000 });
     const host = (await page.getByTestId("canvas-host").boundingBox())!;
