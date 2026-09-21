@@ -18,7 +18,7 @@ import {
   type BrushStrokeV2,
   type EditRecipe,
   type GeometryV1,
-  type LocalAdjustV2,
+  type LocalAdjust,
   type LocalAdjustment,
   type LocalPresetId,
   type Mask,
@@ -47,7 +47,7 @@ export type AutoLocalItem = {
   readonly presetId: LocalPresetId | null;
   readonly name?: string | undefined;
   /** 与えればプリセットの値の代わりに使う (人物補正の役ごとの値、#175) */
-  readonly adjust?: LocalAdjustV2 | undefined;
+  readonly adjust?: LocalAdjust | undefined;
   readonly amount?: number | undefined;
 };
 
@@ -131,8 +131,8 @@ export type EditorAction =
   | { type: "local/remove"; id: string }
   | { type: "local/select"; id: string | null }
   | { type: "local/toggle-visible"; id: string }
-  | { type: "local/adjust-preview"; id: string; key: keyof LocalAdjustV2; value: number }
-  | { type: "local/adjust-commit"; id: string; key: keyof LocalAdjustV2; value: number }
+  | { type: "local/adjust-preview"; id: string; key: keyof LocalAdjust; value: number }
+  | { type: "local/adjust-commit"; id: string; key: keyof LocalAdjust; value: number }
   | { type: "local/amount-preview"; id: string; value: number }
   | { type: "local/amount-commit"; id: string; value: number }
   | { type: "local/mask-preview"; id: string; mask: Mask }
@@ -223,7 +223,7 @@ function withLocal(
 
 /** 手で値を変えたらプリセットの表示は外す (全体の補正と同じ原則) */
 const withLocalValue =
-  (key: keyof LocalAdjustV2, value: number) =>
+  (key: keyof LocalAdjust, value: number) =>
   (l: LocalAdjustment): LocalAdjustment => ({
     ...l,
     presetId: null,

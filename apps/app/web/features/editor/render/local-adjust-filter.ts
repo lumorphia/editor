@@ -7,7 +7,7 @@ import { ADJUST_GLSL, FILTER_VERTEX } from "./adjust-glsl.ts";
 // 部分補正 1 件 = フィルタ 1 パス (#109)。マスク (mask-math.ts / brush-raster.ts) と色補正
 // (adjust-math.ts) の CPU 実装と同じ式。片方を変えたら必ずもう片方も変える。
 // シャープ (3x3 アンシャープ) と美肌 (5x5 の輪郭を残す平滑化) は近傍を見るので CPU 参照は無く、
-// E2E は平坦部 (変わらない) とマスク外だけを照合する (docs/design/08 §7)。
+// #184 のぼかし・bloom・周辺減光・clarity は adjust-math.ts と E2E で同じ式を照合する。
 // 近傍の間隔は元画像の px で決める (uSourceSize) ので、プレビュー (縮小) と書き出し (原寸) で
 // 同じ広がりになる。
 
@@ -31,6 +31,10 @@ uniform vec2 uSourceSize;    // 元画像の px (近傍の間隔を原寸基準�
 uniform float uMaskMode;     // 0 = 楕円 (解析的)、1 = テクスチャ (brush-raster.ts が invert まで済ませている)
 uniform float uSharpen;      // 0..1
 uniform float uSmooth;       // 0..0.6
+uniform float uBlur;         // 0..32 (元画像 px)
+uniform float uBloom;        // 0..1
+uniform float uVignette;     // 0..1
+uniform float uClarity;      // -1..1
 
 uniform float uExposure;
 uniform float uContrast;
@@ -86,6 +90,22 @@ vec3 smoothSkin(vec3 rgb) {
   return sum / wsum;
 }
 
+// 背景ぼかし・bloom・clarity で共有する 3x3 近傍。半径は元画像 px。
+// bloom は 0.65 より明るい成分だけを集める。
+void spatialNeighborhood(float radius, out vec3 average, out vec3 glow) {
+  vec3 sum = vec3(0.0);
+  vec3 bright = vec3(0.0);
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec3 c = tap(vec2(float(x), float(y)) * radius);
+      sum += c;
+      bright += max(c - vec3(0.65), vec3(0.0)) / 0.35;
+    }
+  }
+  average = sum / 9.0;
+  glow = bright / 9.0;
+}
+
 float ellipseMask(void) {
   vec2 p = (vImageUv - uCenter) * uOutputFrame.zw;
   float c = cos(-uRotation);
@@ -103,9 +123,23 @@ void main(void) {
   vec3 rgb = src.a > 0.0 ? src.rgb / src.a : src.rgb;
   if (m > 0.0) {
     vec3 adjusted = rgb;
+    float radius = max(uBlur, max(uBloom > 0.0 ? 8.0 : 0.0, abs(uClarity) > 0.0 ? 4.0 : 0.0));
+    if (radius > 0.0) {
+      vec3 average;
+      vec3 glow;
+      spatialNeighborhood(radius, average, glow);
+      if (uBlur > 0.0) adjusted = average;
+      if (abs(uClarity) > 0.0) adjusted = clamp(adjusted + (rgb - average) * uClarity, 0.0, 1.0);
+      if (uBloom > 0.0) adjusted = clamp(adjusted + glow * uBloom * 0.5, 0.0, 1.0);
+    }
     if (uSmooth > 0.0) adjusted = mix(adjusted, smoothSkin(adjusted), uSmooth);
     if (uSharpen > 0.0) adjusted = sharpen(adjusted);
     adjusted = adjustColor(clamp(adjusted, 0.0, 1.0), uExposure, uContrast, uHighlights, uShadows, uTemperature, uTint, 0.0, uSaturation);
+    if (uVignette > 0.0) {
+      vec2 p = (vImageUv - vec2(0.5)) * 2.0;
+      float d = dot(p, p) / 2.0;
+      adjusted *= 1.0 - uVignette * 0.65 * smoothstep(0.2, 1.0, d);
+    }
     rgb = mix(rgb, adjusted, m);
   }
   if (uShowMask > 0.5) {
@@ -131,6 +165,10 @@ type LocalUniforms = {
   uMaskMode: F32;
   uSharpen: F32;
   uSmooth: F32;
+  uBlur: F32;
+  uBloom: F32;
+  uVignette: F32;
+  uClarity: F32;
   uCenter: Vec2;
   uRadii: Vec2;
   uRotation: F32;
@@ -167,6 +205,10 @@ export class LocalAdjustFilter extends Filter {
           uMaskMode: f32(0),
           uSharpen: f32(0),
           uSmooth: f32(0),
+          uBlur: f32(0),
+          uBloom: f32(0),
+          uVignette: f32(0),
+          uClarity: f32(0),
           uCenter: vec2(0.5, 0.5),
           uRadii: vec2(0.1, 0.1),
           uRotation: f32(0),
@@ -203,6 +245,10 @@ export class LocalAdjustFilter extends Filter {
     u.uAmount = local.amount / 100;
     u.uSharpen = a.sharpen / 100;
     u.uSmooth = a.smooth / 100;
+    u.uBlur = a.blur;
+    u.uBloom = a.bloom / 100;
+    u.uVignette = a.vignette / 100;
+    u.uClarity = a.clarity / 100;
     u.uShowMask = showMask ? 1 : 0;
     u.uMaskMode = local.mask.kind === "ellipse" ? 0 : 1;
     u.uInvert = local.mask.invert ? 1 : 0;

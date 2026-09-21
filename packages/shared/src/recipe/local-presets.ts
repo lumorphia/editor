@@ -1,7 +1,7 @@
 import {
   DEFAULT_LOCAL_ADJUST,
-  type LocalAdjustV2,
-  type LocalAdjustmentV2,
+  type LocalAdjust,
+  type LocalAdjustment,
   type LocalPresetId,
 } from "./schema.ts";
 
@@ -10,7 +10,7 @@ export type LocalPreset = {
   name: string;
   /** 何に使うかの一言 (UI のツールチップ) */
   hint: string;
-  adjust: Partial<LocalAdjustV2>;
+  adjust: Partial<LocalAdjust>;
   amount: number;
 };
 
@@ -34,7 +34,14 @@ export const LOCAL_PRESETS: readonly LocalPreset[] = Object.freeze([
     id: "gear",
     name: "装備強調",
     hint: "見せたい装備をブラシで塗る。暗部を持ち上げ、質感と色を整える",
-    adjust: { exposure: 0.15, shadows: 45, contrast: 15, sharpen: 30, saturation: 8 },
+    adjust: {
+      exposure: 0.15,
+      shadows: 45,
+      contrast: 15,
+      sharpen: 30,
+      saturation: 8,
+      clarity: 25,
+    },
     amount: 100,
   },
 ]);
@@ -47,9 +54,10 @@ export function findLocalPreset(id: string): LocalPreset | undefined {
  * 部分補正にプリセットを適用した新しい部分補正を返す。元は変更しない。
  * adjust と amount を上書きし、マスクには触れない。
  */
-export function applyLocalPreset<
-  T extends Pick<LocalAdjustmentV2, "presetId" | "adjust" | "amount">,
->(local: T, preset: LocalPreset): T {
+export function applyLocalPreset<T extends Pick<LocalAdjustment, "presetId" | "adjust" | "amount">>(
+  local: T,
+  preset: LocalPreset,
+): T {
   return {
     ...local,
     presetId: preset.id,

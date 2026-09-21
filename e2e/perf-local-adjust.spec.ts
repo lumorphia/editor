@@ -6,7 +6,7 @@ import {
   DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
   type EditRecipe,
-  type LocalAdjustmentV2,
+  type LocalAdjustment,
 } from "@prismtone/shared/recipe";
 
 /**
@@ -40,7 +40,7 @@ async function makeNoisePng(page: Page, width: number, height: number): Promise<
   return Buffer.from(dataUrl.split(",")[1]!, "base64");
 }
 
-const local = (i: number): LocalAdjustmentV2 => ({
+const local = (i: number): LocalAdjustment => ({
   ...DEFAULT_LOCAL_ADJUSTMENT,
   id: `l${i}`,
   mask:
@@ -60,10 +60,19 @@ const local = (i: number): LocalAdjustmentV2 => ({
             },
           ],
         },
-  adjust: { ...DEFAULT_LOCAL_ADJUST, exposure: 0.3, sharpen: 30, smooth: i % 2 === 0 ? 0 : 40 },
+  adjust: {
+    ...DEFAULT_LOCAL_ADJUST,
+    exposure: 0.3,
+    sharpen: 30,
+    smooth: i % 2 === 0 ? 0 : 40,
+    blur: i % 4 === 0 ? 8 : 0,
+    bloom: i % 4 === 1 ? 30 : 0,
+    vignette: i % 4 === 2 ? 20 : 0,
+    clarity: i % 4 === 3 ? 30 : 0,
+  },
 });
 
-test("measure develop / export time and texture memory for 0 / 4 / 8 local adjustments", async ({
+test("measure develop / export time and texture memory for 0 / 4 / 8 / 12 local adjustments", async ({
   page,
 }) => {
   test.setTimeout(600_000);

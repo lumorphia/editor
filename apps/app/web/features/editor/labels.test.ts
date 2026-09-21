@@ -22,6 +22,8 @@ describe("localAdjustLabel (#109)", () => {
   it("prefixes the item with 部分補正 and formats exposure to two decimals", () => {
     expect(localAdjustLabel("exposure", 0.35)).toBe("部分補正: 露光量 +0.35");
     expect(localAdjustLabel("shadows", -20)).toBe("部分補正: シャドウ -20");
+    expect(localAdjustLabel("blur", 8)).toBe("部分補正: 背景ぼかし 8px");
+    expect(localAdjustLabel("clarity", -25)).toBe("部分補正: 質感 -25");
   });
 });
 
