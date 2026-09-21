@@ -18,6 +18,7 @@ import {
   type LocalPresetId,
   type Mask,
 } from "@prismtone/shared/recipe";
+import type { SegmentSelectionKind } from "./inference/auto-select.ts";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
 import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
 import type { LoadedImage } from "./load-image.ts";
@@ -36,7 +37,8 @@ export type InferenceStatus = {
 /** 自動選択で一度に足す部分補正 */
 export type AutoLocalItem = {
   readonly mask: Mask;
-  readonly presetId: LocalPresetId;
+  /** null ならプリセット無し (キャラクター / 背景の範囲だけ) */
+  readonly presetId: LocalPresetId | null;
   readonly name?: string | undefined;
 };
 
@@ -75,6 +77,10 @@ export type EditorState = {
       readonly inference: InferenceStatus;
       /** 自動選択の結果の一言 (失敗、目を閉じている、など)。次の操作で消える */
       readonly notice: string | null;
+      /** タップで切る (#177) 待ち。null なら通常 */
+      readonly tap: SegmentSelectionKind | null;
+      /** 直近のタップの 3 段の候補。粒度の切り替えに使う。その部分補正が消えたら捨てる */
+      readonly segment: { readonly localId: string; readonly masks: readonly Mask[] } | null;
     };
   };
 };
@@ -101,6 +107,8 @@ export type EditorAction =
       items: readonly AutoLocalItem[];
       label: string;
       groupId?: string | undefined;
+      /** タップの 3 段の候補 (#177)。先頭の部分補正に紐づけて粒度を切り替えられるようにする */
+      candidates?: readonly Mask[] | undefined;
     }
   | { type: "local/remove"; id: string }
   | { type: "local/select"; id: string | null }
@@ -110,7 +118,7 @@ export type EditorAction =
   | { type: "local/amount-preview"; id: string; value: number }
   | { type: "local/amount-commit"; id: string; value: number }
   | { type: "local/mask-preview"; id: string; mask: Mask }
-  | { type: "local/mask-commit"; id: string; mask: Mask }
+  | { type: "local/mask-commit"; id: string; mask: Mask; label?: string | undefined }
   | { type: "local/preset"; id: string; presetId: LocalPresetId }
   | { type: "local/stroke-commit"; id: string; stroke: BrushStrokeV2 }
   | { type: "ui/show-mask"; on: boolean }
@@ -119,6 +127,8 @@ export type EditorAction =
   | { type: "ui/brush"; brush: BrushSettings }
   | { type: "ui/inference"; inference: InferenceStatus }
   | { type: "ui/notice"; notice: string | null }
+  | { type: "ui/tap"; tap: SegmentSelectionKind | null }
+  | { type: "ui/segment"; segment: EditorState["ui"]["local"]["segment"] }
   | { type: "history/undo" }
   | { type: "history/redo" }
   | { type: "ui/tool"; tool: Tool }
@@ -148,6 +158,8 @@ export const initialEditorState: EditorState = {
       brush: { mode: "add", size: 0.08, hardness: 0.7 },
       inference: { status: "idle", progress: null },
       notice: null,
+      tap: null,
+      segment: null,
     },
   },
 };
@@ -241,13 +253,16 @@ function withNotice(state: EditorState, notice: string | null): EditorState {
   return { ...state, ui: { ...state.ui, local: { ...state.ui.local, notice } } };
 }
 
-/** 選択中の id がレシピから消えていたら選択を外す (undo / リセット後) */
+/** 選択中の id と切り抜きの候補がレシピから消えていたら外す (undo / 削除 / リセット後) */
 function reconcileSelection(state: EditorState): EditorState {
-  const { selectedId } = state.ui.local;
-  if (selectedId && !state.history.present.localAdjustments.some((l) => l.id === selectedId)) {
-    return selectLocal(state, null);
+  const { selectedId, segment } = state.ui.local;
+  const has = (id: string) => state.history.present.localAdjustments.some((l) => l.id === id);
+  let next = state;
+  if (selectedId && !has(selectedId)) next = selectLocal(next, null);
+  if (segment && !has(segment.localId)) {
+    next = { ...next, ui: { ...next.ui, local: { ...next.ui.local, segment: null } } };
   }
-  return state;
+  return next;
 }
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -347,7 +362,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const room = MAX_LOCAL_ADJUSTMENTS - history.present.localAdjustments.length;
       if (action.items.length === 0 || action.items.length > room) return state;
       const added = action.items.map((item) => {
-        const preset = findLocalPreset(item.presetId);
+        const preset = item.presetId ? findLocalPreset(item.presetId) : undefined;
         const base: LocalAdjustment = {
           ...DEFAULT_LOCAL_ADJUSTMENT,
           id: newLocalId(),
@@ -367,7 +382,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         ui: {
           ...state.ui,
           tool: "local",
-          local: { ...state.ui.local, selectedId: added[0]!.id, notice: null },
+          local: {
+            ...state.ui.local,
+            selectedId: added[0]!.id,
+            notice: null,
+            tap: null,
+            segment: action.candidates
+              ? { localId: added[0]!.id, masks: action.candidates }
+              : state.ui.local.segment,
+          },
         },
       };
     }
@@ -378,9 +401,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const rest = list.filter((l) => l.id !== action.id);
       const next = { ...history.present, localAdjustments: rest };
       const neighbour = rest[Math.min(index, rest.length - 1)]?.id ?? null;
-      return selectLocal(
-        { ...state, history: commit(history, next, "部分補正を削除") },
-        state.ui.local.selectedId === action.id ? neighbour : state.ui.local.selectedId,
+      return reconcileSelection(
+        selectLocal(
+          { ...state, history: commit(history, next, "部分補正を削除") },
+          state.ui.local.selectedId === action.id ? neighbour : state.ui.local.selectedId,
+        ),
       );
     }
     case "local/select":
@@ -411,7 +436,12 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "local/mask-preview":
       return localPreview(state, action.id, withLocalMask(action.mask));
     case "local/mask-commit":
-      return localCommit(state, action.id, withLocalMask(action.mask), "マスクを動かす");
+      return localCommit(
+        state,
+        action.id,
+        withLocalMask(action.mask),
+        action.label ?? "マスクを動かす",
+      );
     case "local/preset": {
       const preset = findLocalPreset(action.presetId);
       if (!preset) return state;
@@ -444,6 +474,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       };
     case "ui/notice":
       return withNotice(state, action.notice);
+    case "ui/tap":
+      return { ...state, ui: { ...state.ui, local: { ...state.ui.local, tap: action.tap } } };
+    case "ui/segment":
+      return {
+        ...state,
+        ui: { ...state.ui, local: { ...state.ui.local, segment: action.segment } },
+      };
     case "ui/show-handles":
       return {
         ...state,

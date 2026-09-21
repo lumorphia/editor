@@ -36,6 +36,35 @@ const ASSETS: (Download | Copy)[] = [
     to: `face-landmarker-v1/wasm/${f}`,
     from: path.join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm", f),
   })),
+  // SlimSAM (装備・人物の切り抜き、#177)。Xenova/slimsam-77-uniform の q8。Apache-2.0
+  ...(
+    [
+      ["config.json", "6339884f168658d3ca6473b486973913fb33e84e625e06ae2dd7b4a808187419"],
+      [
+        "preprocessor_config.json",
+        "225545a743c654e3c495ec6f545a0eaba57c8ba3fbbd8483b3cb1c0fc58db517",
+      ],
+      [
+        "onnx/vision_encoder_quantized.onnx",
+        "cce23c7b2e5d4f330932738fb67ba518e04b0d99ccdd1cccd22a7da4e01f2971",
+      ],
+      [
+        "onnx/prompt_encoder_mask_decoder_quantized.onnx",
+        "cb90b279f549d2cab7fd6e20c38522438c65d84bdcca3d2a764cff7d857fdce2",
+      ],
+    ] as const
+  ).map(([f, sha256]): Download => ({
+    kind: "download",
+    to: `slimsam-77-q8-v1/${f}`,
+    url: `https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/${f}`,
+    sha256,
+  })),
+  // onnxruntime-web の WASM (transformers.js が同梱する jsep 版)。MIT
+  ...["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"].map((f): Copy => ({
+    kind: "copy",
+    to: `ort-v1/${f}`,
+    from: path.join(root, "node_modules", "@huggingface", "transformers", "dist", f),
+  })),
 ];
 
 async function sha256(file: string): Promise<string | null> {

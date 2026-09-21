@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_SELECT_FAILED, planFaceSelection } from "./auto-select.ts";
+import { encodeRle, type BitmapMaskV3 } from "@prismtone/shared/recipe";
+import { AUTO_SELECT_FAILED, planFaceSelection, planSegmentSelection } from "./auto-select.ts";
 import type { FaceResult } from "./face-masks.ts";
 
 const square = (cx: number, cy: number, r: number) => [
@@ -59,5 +60,43 @@ describe("planFaceSelection", () => {
     });
     const plan = planFaceSelection("eyes", [small, face()]);
     expect(plan.items[0]!.mask).toMatchObject({ cx: 0.4 });
+  });
+});
+
+describe("planSegmentSelection", () => {
+  const bitmap = (tag: number): BitmapMaskV3 => ({
+    kind: "bitmap",
+    width: 2,
+    height: 1,
+    rle: encodeRle(Uint8Array.from([tag, 1])),
+    strokes: [],
+    feather: 0.1,
+    invert: false,
+  });
+  const masks = [bitmap(0), bitmap(1), bitmap(0)];
+
+  it("装備強調: uses the middle granularity (index 1) with the gear preset", () => {
+    const plan = planSegmentSelection("gear", masks);
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]!.presetId).toBe("gear");
+    expect(plan.items[0]!.mask).toBe(masks[1]);
+    expect(plan.label).toBe("装備強調 (自動)");
+  });
+
+  it("キャラクター: uses the whole-character mask (index 0) without a preset", () => {
+    const plan = planSegmentSelection("person", masks);
+    expect(plan.items[0]!.presetId).toBeNull();
+    expect(plan.items[0]!.name).toBe("キャラクター");
+    expect(plan.items[0]!.mask).toBe(masks[0]);
+  });
+
+  it("背景: inverts the whole-character mask", () => {
+    const plan = planSegmentSelection("background", masks);
+    expect(plan.items[0]!.name).toBe("背景");
+    expect(plan.items[0]!.mask).toMatchObject({ kind: "bitmap", invert: true });
+  });
+
+  it("says so when the segmenter returned nothing", () => {
+    expect(planSegmentSelection("gear", []).notice).toBe(AUTO_SELECT_FAILED);
   });
 });

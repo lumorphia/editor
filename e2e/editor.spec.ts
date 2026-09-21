@@ -262,7 +262,8 @@ test.describe("editor", () => {
   }) => {
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
-    // 装備強調はブラシで始まる
+    // 手動の流れ: ブラシを足してから装備強調のプリセット (何も選んでいないときの「装備強調」はタップで切る、#177)
+    await page.getByTestId("local-add-brush").click();
     await page.getByRole("button", { name: "装備強調" }).click();
     await expect(page.getByTestId("local-list")).toContainText("装備強調 (ブラシ)");
     await expect(page.getByTestId("brush-settings")).toBeVisible();
@@ -784,5 +785,67 @@ test.describe("editor", () => {
     await page.getByTestId("local-add-brush").click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
     await expect(page.getByTestId("local-notice")).toHaveCount(0);
+  });
+
+  test("装備強調 cuts out the tapped gear with SAM, switches granularity, and キャラクター / 背景 select the person (#177)", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const foreign: string[] = [];
+    page.on("request", (req) => {
+      if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(req.url())) foreign.push(req.url());
+    });
+    await page.goto("/edit");
+    await page
+      .getByTestId("file-input")
+      .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
+    await page.getByRole("tab", { name: "部分補正" }).click();
+
+    // 装備強調: モデルの読み込みと埋め込み (シングルスレッドの WASM で 10 秒前後) のあとタップ待ちになる
+    await page.getByRole("button", { name: "装備強調" }).click();
+    await expect(page.getByTestId("tap-overlay")).toBeVisible({ timeout: 120_000 });
+    const host = (await page.getByTestId("canvas-host").boundingBox())!;
+    // 胸のあたり (赤いコート) をタップ
+    await page.mouse.click(host.x + host.width * 0.5, host.y + host.height * 0.85);
+    await expect(page.getByTestId("local-list")).toContainText("装備強調 (切り抜き)", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("history-last")).toContainText("装備強調 (自動)");
+    await expect(page.getByTestId("tap-overlay")).toHaveCount(0);
+    // 3 段の粒度。既定は「装備」、全体に切り替えると 1 手
+    const levels = page.getByTestId("segment-levels");
+    await expect(levels.getByRole("button", { name: "装備" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await levels.getByRole("button", { name: "全体" }).click();
+    await expect(page.getByTestId("history-last")).toContainText("切り抜き: 全体");
+    await expect(levels.getByRole("button", { name: "全体" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // 切り抜きの上にブラシで塗れる
+    await expect(page.getByTestId("brush-settings")).toBeVisible();
+
+    // キャラクター / 背景: プリセット無しの範囲。同じ画像なので埋め込みは使い回し (すぐタップ待ちになる)
+    await page.getByTestId("history-undo").click();
+    await page.getByTestId("history-undo").click();
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await page.getByTestId("local-auto-background").click();
+    await expect(page.getByTestId("tap-overlay")).toBeVisible({ timeout: 10_000 });
+    await page.mouse.click(host.x + host.width * 0.5, host.y + host.height * 0.5);
+    await expect(page.getByTestId("local-list")).toContainText("背景", { timeout: 60_000 });
+    await expect(page.getByTestId("history-last")).toContainText("背景を選択");
+
+    // やめる: タップ待ちを Esc で抜ける
+    await page.getByRole("button", { name: "背景 を削除" }).click();
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await page.getByTestId("local-auto-person").click();
+    await expect(page.getByTestId("tap-overlay")).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("tap-overlay")).toHaveCount(0);
+
+    expect(foreign).toEqual([]);
   });
 });
