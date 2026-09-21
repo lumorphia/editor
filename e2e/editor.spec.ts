@@ -848,4 +848,93 @@ test.describe("editor", () => {
 
     expect(foreign).toEqual([]);
   });
+
+  test("人物補正 detects the person, applies a preset as five grouped adjustments, scales them, and survives a reload (#175)", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await page.addInitScript(() => {
+      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+    });
+    await page.goto("/edit");
+    await page
+      .getByTestId("file-input")
+      .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
+    await page.getByRole("tab", { name: "人物補正" }).click();
+    await page.getByTestId("portrait-detect").click();
+    await expect(page.getByTestId("portrait-presets")).toBeVisible({ timeout: 60_000 });
+    // 1 人なので人物の選択は出ない
+    await expect(page.getByTestId("portrait-faces")).toHaveCount(0);
+
+    // プリセットを選ぶと 5 件 (背景・人物・顔・瞳 ×2) が 1 手で置かれる
+    await page.getByRole("button", { name: "ナチュラル" }).click();
+    await expect(page.getByTestId("portrait-amount")).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByTestId("history-last")).toContainText("人物補正: ナチュラル");
+    await expect(
+      page.getByTestId("portrait-presets").getByRole("button", { name: "ナチュラル" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // プリセットの切り替えは 1 手、効果量はドラッグの規則 (キーボードで 1 手)
+    await page
+      .getByTestId("portrait-presets")
+      .getByRole("button", { name: "ドラマチック" })
+      .click();
+    await expect(page.getByTestId("history-last")).toContainText("人物補正: ドラマチック");
+    const amount = page.getByTestId("portrait-amount").getByLabel("効果量");
+    await amount.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByTestId("history-last")).toContainText("人物補正の効果量 99");
+
+    // 部分補正タブに 5 件、名前は役
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(5);
+    await expect(page.getByTestId("local-list")).toContainText("背景");
+    await expect(page.getByTestId("local-list")).toContainText("瞳 (左)");
+
+    // undo で 3 手戻すとグループごと消え、人物補正タブは「プリセットを選ぶ」に戻る。redo で戻る
+    for (let i = 0; i < 3; i++) await page.getByTestId("history-undo").click();
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await page.getByRole("tab", { name: "人物補正" }).click();
+    await expect(page.getByTestId("portrait-amount")).toHaveCount(0);
+    for (let i = 0; i < 3; i++) await page.getByTestId("history-redo").click();
+    await expect(page.getByTestId("portrait-amount")).toBeVisible();
+
+    // 下書きを開き直しても 5 件が残り (v3 のレシピが IndexedDB を往復する)、書き出せる
+    const draftId = await page.evaluate(
+      () =>
+        new Promise<string>((resolve, reject) => {
+          const open = indexedDB.open("prismtone-editor");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const req = open.result.transaction("kv").objectStore("kv").getAllKeys();
+            req.onsuccess = () => {
+              const key = (req.result as string[]).find((k) => k.startsWith("draft:"));
+              if (!key) reject(new Error("no draft"));
+              else resolve(key.slice("draft:".length));
+            };
+          };
+        }),
+    );
+    await page.goto(`/edit?draft=${draftId}`);
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled({ timeout: 30_000 });
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(5);
+    const download = page.waitForEvent("download");
+    await page.getByTestId("save").click();
+    expect((await download).suggestedFilename()).toMatch(/\.(webp|jpe?g|png)$/);
+  });
+
+  test("人物補正 says so when no face is found and points to the manual tools (#175)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    await page.getByRole("tab", { name: "人物補正" }).click();
+    await page.getByTestId("portrait-detect").click();
+    await expect(page.getByTestId("portrait-notice")).toContainText("自動選択できませんでした", {
+      timeout: 60_000,
+    });
+    await page.getByRole("button", { name: "部分補正で手で置く" }).click();
+    await expect(page.getByTestId("local-add-brush")).toBeVisible();
+  });
 });

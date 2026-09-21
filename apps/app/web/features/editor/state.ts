@@ -6,9 +6,14 @@ import {
   MAX_BRUSH_STROKES,
   MAX_LOCAL_ADJUSTMENTS,
   applyLocalPreset,
+  applyPortraitPreset,
   applyPreset,
   findLocalPreset,
+  findPortraitPreset,
   findPreset,
+  portraitAmount,
+  scalePortraitAmount,
+  type PortraitPresetId,
   type AdjustV1,
   type BrushStrokeV2,
   type EditRecipe,
@@ -19,11 +24,12 @@ import {
   type Mask,
 } from "@prismtone/shared/recipe";
 import type { SegmentSelectionKind } from "./inference/auto-select.ts";
+import type { FaceResult } from "./inference/face-masks.ts";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
 import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
 import type { LoadedImage } from "./load-image.ts";
 
-export type Tool = "adjust" | "geometry" | "presets" | "local";
+export type Tool = "adjust" | "geometry" | "presets" | "local" | "portrait";
 
 /** 円形マスクの初期配置 (今見えている範囲の中央に置くため) */
 export type EllipsePlacement = { cx: number; cy: number; rx: number; ry: number };
@@ -40,6 +46,9 @@ export type AutoLocalItem = {
   /** null ならプリセット無し (キャラクター / 背景の範囲だけ) */
   readonly presetId: LocalPresetId | null;
   readonly name?: string | undefined;
+  /** 与えればプリセットの値の代わりに使う (人物補正の役ごとの値、#175) */
+  readonly adjust?: LocalAdjustV2 | undefined;
+  readonly amount?: number | undefined;
 };
 
 export type BrushSettings = {
@@ -81,6 +90,15 @@ export type EditorState = {
       readonly tap: SegmentSelectionKind | null;
       /** 直近のタップの 3 段の候補。粒度の切り替えに使う。その部分補正が消えたら捨てる */
       readonly segment: { readonly localId: string; readonly masks: readonly Mask[] } | null;
+    };
+    /** 人物補正 (#175)。検出した顔と選んだ人物、今のグループとプリセット */
+    readonly portrait: {
+      /** null は未検出。空配列は検出したが顔が無い */
+      readonly faces: readonly FaceResult[] | null;
+      readonly selectedFace: number;
+      /** 直近に当てたグループ。レシピに残っているかは activePortraitGroup で見る (undo / redo で消えたり戻ったりする) */
+      readonly groupId: string | null;
+      readonly presetId: PortraitPresetId | null;
     };
   };
 };
@@ -127,6 +145,17 @@ export type EditorAction =
   | { type: "ui/brush"; brush: BrushSettings }
   | { type: "ui/inference"; inference: InferenceStatus }
   | { type: "ui/notice"; notice: string | null }
+  | { type: "portrait/faces"; faces: readonly FaceResult[] }
+  | { type: "portrait/select-face"; index: number }
+  | {
+      /** 検出と切り抜きの結果を 1 手で足し、グループとして覚える */
+      type: "portrait/apply";
+      items: readonly AutoLocalItem[];
+      presetId: PortraitPresetId;
+    }
+  | { type: "portrait/preset"; presetId: PortraitPresetId }
+  | { type: "portrait/amount-preview"; value: number }
+  | { type: "portrait/amount-commit"; value: number }
   | { type: "ui/tap"; tap: SegmentSelectionKind | null }
   | { type: "ui/segment"; segment: EditorState["ui"]["local"]["segment"] }
   | { type: "history/undo" }
@@ -161,8 +190,11 @@ export const initialEditorState: EditorState = {
       tap: null,
       segment: null,
     },
+    portrait: { faces: null, selectedFace: 0, groupId: null, presetId: null },
   },
 };
+
+const DEFAULT_PORTRAIT_UI = initialEditorState.ui.portrait;
 
 const withAdjust = (r: EditRecipe, key: keyof AdjustV1, value: number): EditRecipe => ({
   ...r,
@@ -212,6 +244,32 @@ function newLocalId(): string {
   localSeq = (localSeq + 1) % 1000;
   return `l${Date.now().toString(36)}${localSeq.toString(36)}`;
 }
+function newGroupId(): string {
+  return `p${Date.now().toString(36)}${(localSeq++ % 1000).toString(36)}`;
+}
+
+/** 自動選択の部分補正を組み立てる (local/add-auto と portrait/apply で共通) */
+function buildAutoLocals(
+  items: readonly AutoLocalItem[],
+  groupId: string | null,
+): LocalAdjustment[] {
+  return items.map((item) => {
+    const preset = item.presetId ? findLocalPreset(item.presetId) : undefined;
+    const base: LocalAdjustment = {
+      ...DEFAULT_LOCAL_ADJUSTMENT,
+      id: newLocalId(),
+      name: item.name ?? null,
+      groupId,
+      mask: item.mask,
+    };
+    const withPreset = preset ? applyLocalPreset(base, preset) : base;
+    return {
+      ...withPreset,
+      ...(item.adjust ? { adjust: item.adjust } : {}),
+      ...(item.amount !== undefined ? { amount: item.amount } : {}),
+    };
+  });
+}
 
 /** ドラッグ中の preview / 終了時の commit を部分補正に適用する共通処理 */
 function localPreview(
@@ -253,16 +311,24 @@ function withNotice(state: EditorState, notice: string | null): EditorState {
   return { ...state, ui: { ...state.ui, local: { ...state.ui.local, notice } } };
 }
 
-/** 選択中の id と切り抜きの候補がレシピから消えていたら外す (undo / 削除 / リセット後) */
+/** 選択中の id・切り抜きの候補・人物補正のグループがレシピから消えていたら外す (undo / 削除 / リセット後) */
 function reconcileSelection(state: EditorState): EditorState {
   const { selectedId, segment } = state.ui.local;
-  const has = (id: string) => state.history.present.localAdjustments.some((l) => l.id === id);
+  const list = state.history.present.localAdjustments;
+  const has = (id: string) => list.some((l) => l.id === id);
   let next = state;
   if (selectedId && !has(selectedId)) next = selectLocal(next, null);
   if (segment && !has(segment.localId)) {
     next = { ...next, ui: { ...next.ui, local: { ...next.ui.local, segment: null } } };
   }
   return next;
+}
+
+/** 人物補正のグループが今のレシピにあるか。undo で消え、redo で戻るので、ui の groupId は消さずにここで見る */
+export function activePortraitGroup(state: EditorState): string | null {
+  const { groupId } = state.ui.portrait;
+  if (!groupId) return null;
+  return state.history.present.localAdjustments.some((l) => l.groupId === groupId) ? groupId : null;
 }
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -275,7 +341,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draftId: action.draftId,
         history: createHistory(action.recipe ?? DEFAULT_RECIPE),
         dragBase: null,
-        ui: { ...state.ui, error: null, cropping: false },
+        ui: { ...state.ui, error: null, cropping: false, portrait: DEFAULT_PORTRAIT_UI },
       };
     case "image/failed":
       return { ...state, ui: { ...state.ui, error: action.error } };
@@ -361,17 +427,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "local/add-auto": {
       const room = MAX_LOCAL_ADJUSTMENTS - history.present.localAdjustments.length;
       if (action.items.length === 0 || action.items.length > room) return state;
-      const added = action.items.map((item) => {
-        const preset = item.presetId ? findLocalPreset(item.presetId) : undefined;
-        const base: LocalAdjustment = {
-          ...DEFAULT_LOCAL_ADJUSTMENT,
-          id: newLocalId(),
-          name: item.name ?? null,
-          groupId: action.groupId ?? null,
-          mask: item.mask,
-        };
-        return preset ? applyLocalPreset(base, preset) : base;
-      });
+      const added = buildAutoLocals(action.items, action.groupId ?? null);
       const next = {
         ...history.present,
         localAdjustments: [...history.present.localAdjustments, ...added],
@@ -474,6 +530,89 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       };
     case "ui/notice":
       return withNotice(state, action.notice);
+    case "portrait/faces":
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          portrait: { ...state.ui.portrait, faces: action.faces, selectedFace: 0 },
+        },
+      };
+    case "portrait/select-face":
+      return {
+        ...state,
+        ui: { ...state.ui, portrait: { ...state.ui.portrait, selectedFace: action.index } },
+      };
+    case "portrait/apply": {
+      const room = MAX_LOCAL_ADJUSTMENTS - history.present.localAdjustments.length;
+      const preset = findPortraitPreset(action.presetId);
+      if (!preset || action.items.length === 0 || action.items.length > room) return state;
+      const groupId = newGroupId();
+      const next = {
+        ...history.present,
+        localAdjustments: [
+          ...history.present.localAdjustments,
+          ...buildAutoLocals(action.items, groupId),
+        ],
+      };
+      return {
+        ...state,
+        history: commit(history, next, `人物補正: ${preset.name}`),
+        ui: {
+          ...state.ui,
+          tool: "portrait",
+          local: { ...state.ui.local, notice: null },
+          portrait: { ...state.ui.portrait, groupId, presetId: action.presetId },
+        },
+      };
+    }
+    case "portrait/preset": {
+      const groupId = activePortraitGroup(state);
+      const { presetId } = state.ui.portrait;
+      const preset = findPortraitPreset(action.presetId);
+      const current = presetId ? findPortraitPreset(presetId) : undefined;
+      if (!groupId || !preset || !current) return state;
+      const effect = portraitAmount(history.present, groupId, current);
+      return {
+        ...state,
+        history: commit(
+          history,
+          applyPortraitPreset(history.present, groupId, preset, effect),
+          `人物補正: ${preset.name}`,
+        ),
+        ui: { ...state.ui, portrait: { ...state.ui.portrait, presetId: action.presetId } },
+      };
+    }
+    case "portrait/amount-preview": {
+      const groupId = activePortraitGroup(state);
+      const { presetId } = state.ui.portrait;
+      const preset = presetId ? findPortraitPreset(presetId) : undefined;
+      if (!groupId || !preset) return state;
+      return {
+        ...state,
+        dragBase: state.dragBase ?? history.present,
+        history: preview(
+          history,
+          scalePortraitAmount(history.present, groupId, preset, action.value),
+        ),
+      };
+    }
+    case "portrait/amount-commit": {
+      const groupId = activePortraitGroup(state);
+      const { presetId } = state.ui.portrait;
+      const preset = presetId ? findPortraitPreset(presetId) : undefined;
+      if (!groupId || !preset) return state;
+      const base = state.dragBase ?? history.present;
+      return {
+        ...state,
+        dragBase: null,
+        history: commit(
+          { ...history, present: base },
+          scalePortraitAmount(base, groupId, preset, action.value),
+          `人物補正の効果量 ${action.value}`,
+        ),
+      };
+    }
     case "ui/tap":
       return { ...state, ui: { ...state.ui, local: { ...state.ui.local, tap: action.tap } } };
     case "ui/segment":

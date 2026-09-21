@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@prismtone/shared/recipe";
-import { editorReducer, initialEditorState } from "../state.ts";
+import { activePortraitGroup, editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
-import { ImageLoadError, loadImageFile } from "../load-image.ts";
+import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
 import { addPendingExport, loadDraft, saveDraft } from "../drafts.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
@@ -26,6 +26,15 @@ import type { FaceResult } from "../inference/face-masks.ts";
 import { SAM_LEVELS } from "../inference/segment-masks.ts";
 import { TapOverlay } from "./TapOverlay.tsx";
 import type { Point } from "../mask-math.ts";
+import { PortraitPanel } from "./PortraitPanel.tsx";
+import { FaceBoxesOverlay } from "./FaceBoxesOverlay.tsx";
+import { PORTRAIT_FULL, buildPortraitItems, faceCenter } from "../inference/portrait.ts";
+import {
+  MAX_LOCAL_ADJUSTMENTS,
+  findPortraitPreset,
+  portraitAmount,
+  type PortraitPresetId,
+} from "@prismtone/shared/recipe";
 import { CompareSlider } from "./CompareSlider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
@@ -172,46 +181,123 @@ export function EditorPage() {
   // 自動選択 (#176): 顔の検出結果は画像 (draftId) ごとに 1 回だけ取り、瞳・美肌で使い回す。
   // 検出のライブラリ (WASM) は押したときに動的 import する (現像の初期表示に載せない)
   const facesRef = useRef<{ draftId: string; faces: FaceResult[] } | null>(null);
+  /** 顔の検出 (画像ごとに 1 回)。失敗は null (文言は呼ぶ側で出す) */
+  const detectFacesOnce = async (
+    source: LoadedImage,
+    draftId: string,
+  ): Promise<FaceResult[] | null> => {
+    if (facesRef.current?.draftId === draftId) return facesRef.current.faces;
+    dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
+    try {
+      const { detectFaces } = await import("../inference/face.ts");
+      const faces = await detectFaces(source.bitmap, {
+        onProgress: (progress) =>
+          dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
+      });
+      facesRef.current = { draftId, faces };
+      return faces;
+    } catch (e) {
+      console.error("face detection failed", e);
+      return null;
+    } finally {
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+    }
+  };
+  /** 画像の埋め込み (SAM、画像ごとに 1 回)。失敗は false */
+  const prepareSegmenterOnce = async (source: LoadedImage): Promise<boolean> => {
+    dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
+    try {
+      const { prepareSegmenter } = await import("../inference/segment.ts");
+      await prepareSegmenter(source.bitmap, {
+        onProgress: (progress) =>
+          dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
+      });
+      return true;
+    } catch (e) {
+      console.error("segmenter failed", e);
+      return false;
+    } finally {
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+    }
+  };
+
+  // 人物補正 (#175): 検出 → 人物を選ぶ → プリセットで 5 件 (背景・人物・顔・瞳 ×2) を 1 手で置く
+  const portraitDetect = async () => {
+    const source = state.source;
+    const draftId = state.draftId;
+    if (!source || !draftId || state.ui.local.inference.status !== "idle") return;
+    const faces = await detectFacesOnce(source, draftId);
+    if (!faces) {
+      dispatch({ type: "portrait/faces", faces: [] });
+      dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+      return;
+    }
+    dispatch({ type: "portrait/faces", faces });
+    if (faces.length === 0) dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+  };
+  const portraitApply = async (presetId: PortraitPresetId) => {
+    const source = state.source;
+    const faces = state.ui.portrait.faces;
+    const face = faces?.[state.ui.portrait.selectedFace];
+    if (!source || !face || state.ui.local.inference.status !== "idle") return;
+    if (activePortraitGroup(state)) {
+      dispatch({ type: "portrait/preset", presetId });
+      return;
+    }
+    const preset = findPortraitPreset(presetId);
+    if (!preset) return;
+    // 1 人で最大 5 件 (背景・人物・顔・瞳 ×2) 使う。入り切らなければ先に伝える
+    if (MAX_LOCAL_ADJUSTMENTS - recipe.localAdjustments.length < 5) {
+      dispatch({ type: "ui/notice", notice: PORTRAIT_FULL });
+      return;
+    }
+    if (!(await prepareSegmenterOnce(source))) {
+      dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+      return;
+    }
+    dispatch({ type: "ui/inference", inference: { status: "running", progress: null } });
+    try {
+      const { segmentAt } = await import("../inference/segment.ts");
+      const center = faceCenter(face);
+      const { masks } = await segmentAt(center.x, center.y);
+      const person = masks[0];
+      if (!person || person.kind !== "bitmap") throw new Error("no person mask");
+      dispatch({
+        type: "portrait/apply",
+        items: buildPortraitItems(face, person, preset, 100),
+        presetId,
+      });
+    } catch (e) {
+      console.error("portrait failed", e);
+      dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+    } finally {
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+    }
+  };
+  const portraitGroupId = activePortraitGroup(state);
+  const portraitEffect = (() => {
+    const { presetId } = state.ui.portrait;
+    const preset = presetId ? findPortraitPreset(presetId) : undefined;
+    return portraitGroupId && preset ? portraitAmount(recipe, portraitGroupId, preset) : 100;
+  })();
+
   const autoSelect = async (kind: "eyes" | "skin" | SegmentSelectionKind) => {
     const source = state.source;
     const draftId = state.draftId;
     if (!source || !draftId || state.ui.local.inference.status !== "idle") return;
     if (kind === "gear" || kind === "person" || kind === "background") {
       // タップで切る (#177): 画像の埋め込み (初回は数秒) を済ませてからタップを待つ
-      dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
-      try {
-        const { prepareSegmenter } = await import("../inference/segment.ts");
-        await prepareSegmenter(source.bitmap, {
-          onProgress: (progress) =>
-            dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
-        });
-      } catch (e) {
-        console.error("segmenter failed", e);
-        dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+      if (!(await prepareSegmenterOnce(source))) {
         dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
         return;
       }
-      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
       dispatch({ type: "ui/tap", tap: kind });
       return;
     }
-    let faces = facesRef.current?.draftId === draftId ? facesRef.current.faces : null;
+    const faces = await detectFacesOnce(source, draftId);
     if (!faces) {
-      dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
-      try {
-        const { detectFaces } = await import("../inference/face.ts");
-        faces = await detectFaces(source.bitmap, {
-          onProgress: (progress) =>
-            dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
-        });
-        facesRef.current = { draftId, faces };
-      } catch (e) {
-        console.error("face detection failed", e);
-        dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
-        dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
-        return;
-      }
-      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+      dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+      return;
     }
     const plan = planFaceSelection(kind, faces);
     if (plan.items.length > 0) {
@@ -650,6 +736,21 @@ export function EditorPage() {
                 onCancel={() => dispatch({ type: "ui/tap", tap: null })}
               />
             )}
+          {hasImage &&
+            state.source &&
+            state.ui.tool === "portrait" &&
+            (state.ui.portrait.faces?.length ?? 0) > 1 &&
+            !state.ui.comparing &&
+            !state.ui.cropping && (
+              <FaceBoxesOverlay
+                view={view}
+                source={{ width: state.source.bitmap.width, height: state.source.bitmap.height }}
+                geometry={recipe.geometry}
+                faces={state.ui.portrait.faces ?? []}
+                selected={state.ui.portrait.selectedFace}
+                onSelect={(index) => dispatch({ type: "portrait/select-face", index })}
+              />
+            )}
           {hasImage && state.ui.cropping && recipe.geometry.crop && (
             <CropOverlay
               view={view}
@@ -669,6 +770,7 @@ export function EditorPage() {
             [
               ["presets", "プリセット"],
               ["adjust", "補正"],
+              ["portrait", "人物補正"],
               ["local", "部分補正"],
               ["geometry", "幾何"],
             ] as const
@@ -697,6 +799,23 @@ export function EditorPage() {
               adjust={recipe.adjust}
               onPreview={(key, value) => dispatch({ type: "adjust/preview", key, value })}
               onCommit={(key, value) => dispatch({ type: "adjust/commit", key, value })}
+            />
+          )}
+          {state.ui.tool === "portrait" && (
+            <PortraitPanel
+              faces={state.ui.portrait.faces}
+              selectedFace={state.ui.portrait.selectedFace}
+              groupId={portraitGroupId}
+              presetId={portraitGroupId ? state.ui.portrait.presetId : null}
+              amount={portraitEffect}
+              inference={state.ui.local.inference}
+              notice={state.ui.local.notice}
+              onDetect={() => void portraitDetect()}
+              onSelectFace={(index) => dispatch({ type: "portrait/select-face", index })}
+              onApply={(presetId) => void portraitApply(presetId)}
+              onAmountPreview={(value) => dispatch({ type: "portrait/amount-preview", value })}
+              onAmountCommit={(value) => dispatch({ type: "portrait/amount-commit", value })}
+              onGoLocal={() => dispatch({ type: "ui/tool", tool: "local" })}
             />
           )}
           {state.ui.tool === "local" && (

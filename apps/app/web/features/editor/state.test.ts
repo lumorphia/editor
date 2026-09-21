@@ -3,8 +3,14 @@ import {
   DEFAULT_ELLIPSE_MASK,
   DEFAULT_RECIPE,
   MAX_LOCAL_ADJUSTMENTS,
+  encodeRle,
 } from "@prismtone/shared/recipe";
-import { editorReducer, initialEditorState, type EditorState } from "./state.ts";
+import {
+  activePortraitGroup,
+  editorReducer,
+  initialEditorState,
+  type EditorState,
+} from "./state.ts";
 
 const loaded: EditorState = editorReducer(initialEditorState, {
   type: "image/loaded",
@@ -353,5 +359,83 @@ describe("editorReducer: 部分補正 (#109)", () => {
     });
     expect(s.ui.local.brush).toEqual({ mode: "erase", size: 0.2, hardness: 0.3 });
     expect(initialEditorState.ui.local.brush.mode).toBe("add");
+  });
+});
+
+describe("editorReducer: 人物補正 (#175)", () => {
+  // 役はマスクの形で決まる (portraitRole): 反転したビットマップ = 背景、ビットマップ = 人物、多角形 = 顔
+  const bitmap = (invert: boolean) => ({
+    kind: "bitmap" as const,
+    width: 2,
+    height: 1,
+    rle: encodeRle(Uint8Array.from([1, 0])),
+    strokes: [],
+    feather: 0.1,
+    invert,
+  });
+  const polygon = {
+    kind: "polygon" as const,
+    rings: [
+      [
+        { x: 0.3, y: 0.2 },
+        { x: 0.7, y: 0.2 },
+        { x: 0.5, y: 0.8 },
+      ],
+    ],
+    strokes: [],
+    feather: 0.2,
+    invert: false,
+  };
+  const items = [
+    { name: "背景", presetId: null, mask: bitmap(true), amount: 60 },
+    { name: "人物", presetId: null, mask: bitmap(false), amount: 60 },
+    { name: "顔", presetId: "skin" as const, mask: polygon, amount: 80 },
+  ];
+  const applied = editorReducer(loaded, { type: "portrait/apply", items, presetId: "natural" });
+
+  it("applies a portrait as one history step, groups the adjustments, and remembers the group and preset", () => {
+    const list = applied.history.present.localAdjustments;
+    expect(list).toHaveLength(3);
+    expect(new Set(list.map((l) => l.groupId)).size).toBe(1);
+    expect(list[0]!.groupId).toBe(applied.ui.portrait.groupId);
+    expect(applied.ui.portrait.presetId).toBe("natural");
+    expect(applied.history.pastLabels.at(-1)).toBe("人物補正: ナチュラル");
+    expect(applied.ui.tool).toBe("portrait");
+  });
+
+  it("switches the preset for the whole group in one step", () => {
+    const s = editorReducer(applied, { type: "portrait/preset", presetId: "dramatic" });
+    expect(s.ui.portrait.presetId).toBe("dramatic");
+    expect(s.history.pastLabels.at(-1)).toBe("人物補正: ドラマチック");
+    const bg = s.history.present.localAdjustments[0]!;
+    expect(bg.adjust.exposure).toBe(-0.5);
+  });
+
+  it("amount preview / commit scale the group's amounts with the drag rule", () => {
+    let s = editorReducer(applied, { type: "portrait/amount-preview", value: 50 });
+    expect(s.history.past).toHaveLength(applied.history.past.length);
+    expect(s.history.present.localAdjustments[0]!.amount).toBe(30);
+    s = editorReducer(s, { type: "portrait/amount-commit", value: 50 });
+    expect(s.history.past).toHaveLength(applied.history.past.length + 1);
+    expect(s.history.pastLabels.at(-1)).toBe("人物補正の効果量 50");
+  });
+
+  it("the group is inactive after undo and active again after redo", () => {
+    let s = editorReducer(applied, { type: "history/undo" });
+    expect(activePortraitGroup(s)).toBeNull();
+    expect(editorReducer(s, { type: "portrait/preset", presetId: "soft" })).toBe(s);
+    s = editorReducer(s, { type: "history/redo" });
+    expect(activePortraitGroup(s)).toBe(applied.ui.portrait.groupId);
+  });
+
+  it("keeps detected faces and the chosen one in the ui state", () => {
+    let s = editorReducer(loaded, { type: "portrait/faces", faces: [] });
+    expect(s.ui.portrait.faces).toEqual([]);
+    s = editorReducer(s, { type: "portrait/select-face", index: 1 });
+    expect(s.ui.portrait.selectedFace).toBe(1);
+    // 画像を開き直したら忘れる
+    s = editorReducer(s, { type: "image/loaded", draftId: "d3", image: loaded.source! });
+    expect(s.ui.portrait.faces).toBeNull();
+    expect(s.ui.portrait.selectedFace).toBe(0);
   });
 });

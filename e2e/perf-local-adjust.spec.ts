@@ -85,7 +85,7 @@ test("measure develop / export time and texture memory for 0 / 4 / 8 local adjus
     return dbg && gl ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : "unknown";
   });
   console.log(`renderer: ${gpu}`);
-  for (const n of [0, 4, 8]) {
+  for (const n of [0, 4, 8, 12]) {
     const recipe: EditRecipe = {
       ...DEFAULT_RECIPE,
       localAdjustments: Array.from({ length: n }, (_, i) => local(i)),
