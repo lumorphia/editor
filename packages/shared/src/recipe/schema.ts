@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidRle } from "./rle.ts";
 
 // zod 4 は JIT の可否を Function("") で探る。CSP (script-src に unsafe-eval が無い) の下では握られて動作は
 // 落ちないが、ブラウザから違反が報告され続ける (RM-30)。このスキーマはブラウザでも動くので JIT を使わない。
@@ -8,11 +9,12 @@ z.config({ jitless: true });
 // 編集レシピ。定義は docs/design/04-edit-recipe.md を正とする。
 // 変更は追加のみ。既存項目の意味・値域は変えない (ADR-0009)。
 // v1: 全体の補正と幾何。v2: 部分補正 (マスク付きの補正、#109) を追加。
+// v3: 自動選択 (#176 / #177) のための多角形・ビットマップのマスクと、人物補正 (#175) の groupId を追加。
 
 const pct = z.number().min(-100).max(100);
 
-/** 部分補正の上限。レシピの肥大化と描画負荷を抑える (#109) */
-export const MAX_LOCAL_ADJUSTMENTS = 8;
+/** v2 の部分補正の上限 (レシピの肥大化と描画負荷を抑える、#109)。v3 は MAX_LOCAL_ADJUSTMENTS */
+export const MAX_LOCAL_ADJUSTMENTS_V2 = 8;
 export const MAX_BRUSH_STROKES = 64;
 export const MAX_BRUSH_POINTS = 512;
 export const MAX_LOCAL_SMOOTH = 60;
@@ -127,7 +129,7 @@ export const localAdjustmentSchemaV2 = z.object({
 
 export const editRecipeSchemaV2 = editRecipeSchemaV1.extend({
   version: z.literal(2),
-  localAdjustments: z.array(localAdjustmentSchemaV2).max(MAX_LOCAL_ADJUSTMENTS),
+  localAdjustments: z.array(localAdjustmentSchemaV2).max(MAX_LOCAL_ADJUSTMENTS_V2),
 });
 
 export type LocalAdjustV2 = z.infer<typeof localAdjustSchemaV2>;
@@ -139,17 +141,89 @@ export type LocalPresetId = (typeof LOCAL_PRESET_IDS)[number];
 export type LocalAdjustmentV2 = z.infer<typeof localAdjustmentSchemaV2>;
 export type EditRecipeV2 = z.infer<typeof editRecipeSchemaV2>;
 
+// ---- v3: 自動選択のマスクと人物補正のまとまり (#175 / #176 / #177) ----
+// 顔の輪郭 (多角形) と SAM の切り抜き (ビットマップ) をブラシ点列に崩さず持つ。どちらも strokes を持ち、
+// 自動で置いたマスクの上にブラシで足す / 消す (brush と同じ道具で直せる)。
+// 座標系は v2 と同じ (幾何を掛ける前の画像の正規化座標)。
+
+/** 部分補正の上限。人物補正 (#175) が 1 人で 5 件 (顔・瞳 ×2・人物・背景) 使う */
+export const MAX_LOCAL_ADJUSTMENTS = 12;
+/** 多角形の輪 (外周 1 + 穴) の上限と、1 輪の点数の上限 */
+export const MAX_POLYGON_RINGS = 8;
+export const MAX_POLYGON_POINTS = 256;
+/** ビットマップマスクの 1 辺の上限 (px)。GPU では線形補間で拡大するので境界は滑らか */
+export const BITMAP_MAX_EDGE = 256;
+
+const ring = z
+  .array(z.object({ x: unit, y: unit }))
+  .min(3)
+  .max(MAX_POLYGON_POINTS);
+
+export const polygonMaskSchemaV3 = z.object({
+  kind: z.literal("polygon"),
+  /** 先頭が外周、以降は穴 (偶奇で塗る)。顔なら外周 = 顔の輪郭、穴 = 目・口 */
+  rings: z.array(ring).min(1).max(MAX_POLYGON_RINGS),
+  strokes: z.array(brushStrokeSchemaV2).max(MAX_BRUSH_STROKES),
+  feather: unit,
+  invert: z.boolean(),
+});
+
+export const bitmapMaskSchemaV3 = z
+  .object({
+    kind: z.literal("bitmap"),
+    width: z.number().int().min(1).max(BITMAP_MAX_EDGE),
+    height: z.number().int().min(1).max(BITMAP_MAX_EDGE),
+    /** width × height の 0/1 を rle.ts で圧縮したもの (行優先) */
+    rle: z.string().max(64 * 1024),
+    strokes: z.array(brushStrokeSchemaV2).max(MAX_BRUSH_STROKES),
+    feather: unit,
+    invert: z.boolean(),
+  })
+  .refine((m) => isValidRle(m.rle, m.width * m.height), { message: "rle does not match size" });
+
+export const maskSchemaV3 = z.discriminatedUnion("kind", [
+  ellipseMaskSchemaV2,
+  brushMaskSchemaV2,
+  polygonMaskSchemaV3,
+  bitmapMaskSchemaV3,
+]);
+
+export const localAdjustmentSchemaV3 = localAdjustmentSchemaV2.extend({
+  mask: maskSchemaV3,
+  /** 人物補正 (#175) など、まとめて扱う部分補正の組。無ければ null */
+  groupId: z.string().min(1).max(32).nullable(),
+});
+
+export const editRecipeSchemaV3 = editRecipeSchemaV1.extend({
+  version: z.literal(3),
+  localAdjustments: z.array(localAdjustmentSchemaV3).max(MAX_LOCAL_ADJUSTMENTS),
+});
+
+export type PolygonMaskV3 = z.infer<typeof polygonMaskSchemaV3>;
+export type BitmapMaskV3 = z.infer<typeof bitmapMaskSchemaV3>;
+export type MaskV3 = z.infer<typeof maskSchemaV3>;
+export type LocalAdjustmentV3 = z.infer<typeof localAdjustmentSchemaV3>;
+export type EditRecipeV3 = z.infer<typeof editRecipeSchemaV3>;
+/** strokes を持つマスク (ブラシで直せるもの) */
+export type StrokedMask = Exclude<MaskV3, EllipseMaskV2>;
+
 /** 現行のレシピ型。version を上げたらここを差し替える。 */
-export type EditRecipe = EditRecipeV2;
-export const editRecipeSchema = editRecipeSchemaV2;
-export const CURRENT_RECIPE_VERSION = 2 as const;
-export const localAdjustmentSchema = localAdjustmentSchemaV2;
+export type EditRecipe = EditRecipeV3;
+export type LocalAdjustment = LocalAdjustmentV3;
+export type Mask = MaskV3;
+export const editRecipeSchema = editRecipeSchemaV3;
+export const CURRENT_RECIPE_VERSION = 3 as const;
+export const localAdjustmentSchema = localAdjustmentSchemaV3;
 
 /**
  * API の入出力で受けるレシピ。旧版の投稿はそのまま返り、投稿時も旧版のクライアントを受ける。
  * 読む側は migrateRecipe で現行に揃える。
  */
-export const editRecipeInputSchema = z.union([editRecipeSchemaV1, editRecipeSchemaV2]);
+export const editRecipeInputSchema = z.union([
+  editRecipeSchemaV1,
+  editRecipeSchemaV2,
+  editRecipeSchemaV3,
+]);
 export type EditRecipeInput = z.infer<typeof editRecipeInputSchema>;
 
 export const DEFAULT_ADJUST: AdjustV1 = Object.freeze({
@@ -203,16 +277,17 @@ export const DEFAULT_BRUSH_MASK: BrushMaskV2 = Object.freeze({
 });
 
 /** id と mask を除いた部分補正の既定値。呼ぶ側が id と mask を与える */
-export const DEFAULT_LOCAL_ADJUSTMENT: Omit<LocalAdjustmentV2, "id" | "mask"> = Object.freeze({
+export const DEFAULT_LOCAL_ADJUSTMENT: Omit<LocalAdjustment, "id" | "mask"> = Object.freeze({
   name: null,
   presetId: null,
+  groupId: null,
   adjust: DEFAULT_LOCAL_ADJUST,
   amount: 100,
   visible: true,
 });
 
 export const DEFAULT_RECIPE: EditRecipe = Object.freeze({
-  version: 2,
+  version: 3,
   presetId: null,
   adjust: DEFAULT_ADJUST,
   geometry: DEFAULT_GEOMETRY,

@@ -3,7 +3,7 @@ import {
   type AdjustV1,
   type GeometryV1,
   type LocalAdjustV2,
-  type LocalAdjustmentV2,
+  type LocalAdjustment,
 } from "@prismtone/shared/recipe";
 
 /** 補正項目の表示名。AdjustPanel と履歴の操作名で共有する */
@@ -58,7 +58,7 @@ export function geometryLabel(patch: Partial<GeometryV1>): string {
  * 投稿詳細の「編集レシピ」に出す部分補正の要約: 「4 件 (瞳強調 ×2、美肌、その他 1)」。
  * プリセットの並び順で数え、プリセット無しは「その他」。無ければ null
  */
-export function localAdjustmentsSummary(list: readonly LocalAdjustmentV2[]): string | null {
+export function localAdjustmentsSummary(list: readonly LocalAdjustment[]): string | null {
   if (list.length === 0) return null;
   const parts = LOCAL_PRESETS.flatMap((preset) => {
     const n = list.filter((l) => l.presetId === preset.id).length;

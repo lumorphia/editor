@@ -1,15 +1,10 @@
 import { Texture, TextureStyle } from "pixi.js";
-import type { BrushMaskV2, BrushStrokeV2 } from "@prismtone/shared/recipe";
-import {
-  createMaskRaster,
-  rasterizeBrushMask,
-  stampStroke,
-  type MaskRaster,
-} from "../brush-raster.ts";
+import type { BrushStrokeV2, StrokedMask } from "@prismtone/shared/recipe";
+import { createMaskRaster, rasterizeMask, stampStroke, type MaskRaster } from "../brush-raster.ts";
 import type { Size } from "./geometry.ts";
 
 /**
- * ブラシマスクのテクスチャ (#109)。brush-raster.ts のラスタを canvas に写して PixiJS の Texture にする。
+ * ブラシ・多角形・ビットマップのマスクのテクスチャ (#109、v3)。brush-raster.ts のラスタを canvas に写して PixiJS の Texture にする。
  * レシピの確定 (commit) ではゼロから描き直し、描画中は 1 ストロークだけ足して更新する。
  */
 export class MaskTexture {
@@ -37,8 +32,8 @@ export class MaskTexture {
   }
 
   /** マスク全体を描き直す */
-  set(mask: BrushMaskV2): void {
-    this.raster = rasterizeBrushMask(mask, this.source);
+  set(mask: StrokedMask): void {
+    this.raster = rasterizeMask(mask, this.source);
     this.upload();
   }
 

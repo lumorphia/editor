@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ELLIPSE_MASK, DEFAULT_RECIPE } from "@prismtone/shared/recipe";
+import {
+  DEFAULT_ELLIPSE_MASK,
+  DEFAULT_RECIPE,
+  MAX_LOCAL_ADJUSTMENTS,
+} from "@prismtone/shared/recipe";
 import { editorReducer, initialEditorState, type EditorState } from "./state.ts";
 
 const loaded: EditorState = editorReducer(initialEditorState, {
@@ -111,11 +115,34 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(s.history.pastLabels[0]).toBe("部分補正を追加: 瞳強調");
   });
 
-  it("refuses a 9th adjustment", () => {
+  it("refuses an adjustment beyond the limit (v3 は 12)", () => {
     let s = loaded;
-    for (let i = 0; i < 9; i++) s = editorReducer(s, { type: "local/add", kind: "ellipse" });
-    expect(s.history.present.localAdjustments).toHaveLength(8);
-    expect(s.history.past).toHaveLength(8);
+    for (let i = 0; i < MAX_LOCAL_ADJUSTMENTS + 1; i++)
+      s = editorReducer(s, { type: "local/add", kind: "ellipse" });
+    expect(s.history.present.localAdjustments).toHaveLength(MAX_LOCAL_ADJUSTMENTS);
+    expect(s.history.past).toHaveLength(MAX_LOCAL_ADJUSTMENTS);
+  });
+
+  it("adds a brush stroke to a polygon mask (自動で置いたマスクをブラシで直す)", () => {
+    const polygon = {
+      kind: "polygon" as const,
+      rings: [
+        [
+          { x: 0.2, y: 0.2 },
+          { x: 0.8, y: 0.2 },
+          { x: 0.5, y: 0.8 },
+        ],
+      ],
+      strokes: [],
+      feather: 0,
+      invert: false,
+    };
+    let s = editorReducer(withOne, { type: "local/mask-commit", id: id, mask: polygon });
+    const stroke = { mode: "erase" as const, size: 0.1, hardness: 1, points: [{ x: 0.5, y: 0.5 }] };
+    s = editorReducer(s, { type: "local/stroke-commit", id: id, stroke });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind).toBe("polygon");
+    expect(mask.kind === "polygon" && mask.strokes).toEqual([stroke]);
   });
 
   it("gives each adjustment a distinct id", () => {

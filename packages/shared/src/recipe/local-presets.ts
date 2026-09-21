@@ -47,7 +47,9 @@ export function findLocalPreset(id: string): LocalPreset | undefined {
  * 部分補正にプリセットを適用した新しい部分補正を返す。元は変更しない。
  * adjust と amount を上書きし、マスクには触れない。
  */
-export function applyLocalPreset(local: LocalAdjustmentV2, preset: LocalPreset): LocalAdjustmentV2 {
+export function applyLocalPreset<
+  T extends Pick<LocalAdjustmentV2, "presetId" | "adjust" | "amount">,
+>(local: T, preset: LocalPreset): T {
   return {
     ...local,
     presetId: preset.id,
