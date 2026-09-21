@@ -145,6 +145,59 @@ describe("editorReducer: 部分補正 (#109)", () => {
     expect(mask.kind === "polygon" && mask.strokes).toEqual([stroke]);
   });
 
+  it("adds several adjustments at once as one history step with a shared groupId (自動選択)", () => {
+    const s = editorReducer(loaded, {
+      type: "local/add-auto",
+      label: "瞳強調 (自動)",
+      groupId: "face1",
+      items: [
+        { presetId: "eyes", mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.4 } },
+        { presetId: "eyes", mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.6 } },
+      ],
+    });
+    const list = s.history.present.localAdjustments;
+    expect(list).toHaveLength(2);
+    expect(list.map((l) => l.groupId)).toEqual(["face1", "face1"]);
+    expect(list[0]!.presetId).toBe("eyes");
+    expect(list[0]!.adjust.sharpen).toBe(30);
+    expect(s.history.past).toHaveLength(1);
+    expect(s.history.pastLabels[0]).toBe("瞳強調 (自動)");
+    expect(s.ui.local.selectedId).toBe(list[0]!.id);
+    expect(s.ui.tool).toBe("local");
+  });
+
+  it("adds nothing when the batch would exceed the limit", () => {
+    let s = loaded;
+    for (let i = 0; i < MAX_LOCAL_ADJUSTMENTS - 1; i++)
+      s = editorReducer(s, { type: "local/add", kind: "ellipse" });
+    const before = s.history.present;
+    s = editorReducer(s, {
+      type: "local/add-auto",
+      label: "x",
+      items: [
+        { presetId: "eyes", mask: DEFAULT_ELLIPSE_MASK },
+        { presetId: "eyes", mask: DEFAULT_ELLIPSE_MASK },
+      ],
+    });
+    expect(s.history.present).toBe(before);
+  });
+
+  it("tracks inference status and notice in the ui state", () => {
+    let s = editorReducer(loaded, {
+      type: "ui/inference",
+      inference: { status: "loading", progress: { loaded: 1, total: 4 } },
+    });
+    expect(s.ui.local.inference.status).toBe("loading");
+    expect(s.ui.local.inference.progress).toEqual({ loaded: 1, total: 4 });
+    s = editorReducer(s, { type: "ui/inference", inference: { status: "idle", progress: null } });
+    s = editorReducer(s, { type: "ui/notice", notice: "自動選択できませんでした" });
+    expect(s.ui.local.inference.status).toBe("idle");
+    expect(s.ui.local.notice).toBe("自動選択できませんでした");
+    // 部分補正を足したら文言は消える
+    s = editorReducer(s, { type: "local/add", kind: "brush" });
+    expect(s.ui.local.notice).toBeNull();
+  });
+
   it("gives each adjustment a distinct id", () => {
     let s = withOne;
     s = editorReducer(s, { type: "local/add", kind: "ellipse" });

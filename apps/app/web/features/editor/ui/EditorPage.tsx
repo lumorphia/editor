@@ -16,6 +16,8 @@ import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
 import { BrushOverlay } from "./BrushOverlay.tsx";
 import { LocalPanel } from "./LocalPanel.tsx";
+import { AUTO_SELECT_FAILED, planFaceSelection } from "../inference/auto-select.ts";
+import type { FaceResult } from "../inference/face-masks.ts";
 import { CompareSlider } from "./CompareSlider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
@@ -157,6 +159,38 @@ export function EditorPage() {
       rx: Math.min(DEFAULT_ELLIPSE_MASK.rx, short / state.source.bitmap.width),
       ry: Math.min(DEFAULT_ELLIPSE_MASK.ry, short / state.source.bitmap.height),
     };
+  };
+
+  // 自動選択 (#176): 顔の検出結果は画像 (draftId) ごとに 1 回だけ取り、瞳・美肌で使い回す。
+  // 検出のライブラリ (WASM) は押したときに動的 import する (現像の初期表示に載せない)
+  const facesRef = useRef<{ draftId: string; faces: FaceResult[] } | null>(null);
+  const autoSelect = async (kind: "eyes" | "skin") => {
+    const source = state.source;
+    const draftId = state.draftId;
+    if (!source || !draftId || state.ui.local.inference.status !== "idle") return;
+    let faces = facesRef.current?.draftId === draftId ? facesRef.current.faces : null;
+    if (!faces) {
+      dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
+      try {
+        const { detectFaces } = await import("../inference/face.ts");
+        faces = await detectFaces(source.bitmap, {
+          onProgress: (progress) =>
+            dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
+        });
+        facesRef.current = { draftId, faces };
+      } catch (e) {
+        console.error("face detection failed", e);
+        dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+        dispatch({ type: "ui/notice", notice: AUTO_SELECT_FAILED });
+        return;
+      }
+      dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
+    }
+    const plan = planFaceSelection(kind, faces);
+    if (plan.items.length > 0) {
+      dispatch({ type: "local/add-auto", items: plan.items, label: plan.label });
+    }
+    if (plan.notice) dispatch({ type: "ui/notice", notice: plan.notice });
   };
 
   const zoomBy = (factor: number) => rendererRef.current?.zoomBy(factor);
@@ -584,6 +618,9 @@ export function EditorPage() {
               showHandles={state.ui.local.showHandles}
               onShowHandles={(on) => dispatch({ type: "ui/show-handles", on })}
               brush={state.ui.local.brush}
+              inference={state.ui.local.inference}
+              notice={state.ui.local.notice}
+              onAuto={(kind) => void autoSelect(kind)}
               onBrush={(brush) => dispatch({ type: "ui/brush", brush })}
               onAdd={(kind, presetId) =>
                 dispatch({ type: "local/add", kind, presetId, at: ellipseAtView() })

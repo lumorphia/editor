@@ -335,10 +335,12 @@ test.describe("editor", () => {
     await login(page, "/edit");
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
-    await page.getByRole("button", { name: "瞳強調" }).click();
+    // 手動の流れ: 円形を足してから瞳強調のプリセットを当てる (何も選んでいないときの「瞳強調」は顔の自動選択、#176)
+    await page.getByTestId("local-add-ellipse").click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
+    await page.getByRole("button", { name: "瞳強調" }).click();
     await expect(page.getByTestId("local-list")).toContainText("瞳強調 (円形)");
-    await expect(page.getByTestId("history-last")).toContainText("部分補正を追加: 瞳強調");
+    await expect(page.getByTestId("history-last")).toContainText("部分補正: 瞳強調");
     await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
     await expect(page.getByTestId("local-sliders")).toBeVisible();
 
@@ -718,5 +720,69 @@ test.describe("editor", () => {
       .getByTestId("file-input")
       .setInputFiles({ name: "x.png", mimeType: "image/png", buffer: Buffer.from("not a png") });
     await expect(page.getByRole("alert")).toContainText("PNG または JPEG");
+  });
+
+  test("瞳強調 and 美肌 place masks from face detection, and the polygon can be erased with the brush (#176)", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+    });
+    // 画像を外に送らないこと: このテストの間、自分のオリジン以外へのリクエストが無い
+    const foreign: string[] = [];
+    page.on("request", (req) => {
+      if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(req.url())) foreign.push(req.url());
+    });
+    await page.goto("/edit");
+    await page
+      .getByTestId("file-input")
+      .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
+    await page.getByRole("tab", { name: "部分補正" }).click();
+
+    // 瞳: 初回はモデルを読み込む (数 MB) ので待つ。両目に円形が 2 つ、1 手の履歴
+    await page.getByRole("button", { name: "瞳強調" }).click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(2, {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("local-list")).toContainText("瞳強調 (円形)");
+    await expect(page.getByTestId("history-last")).toContainText("瞳強調 (自動)");
+    await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
+    // 円形は顔の上半分にある (画像は 960×540、顔は中央やや上)
+    const handle = await page.getByTestId("ellipse-handle-move").boundingBox();
+    const host = await page.getByTestId("canvas-host").boundingBox();
+    expect(handle && host && handle.y < host.y + host.height * 0.6).toBe(true);
+
+    // 2 つで 1 手なので undo で両方消える。美肌: 顔の輪郭の多角形が 1 つ増え、選択されてブラシで直せる
+    await page.getByTestId("history-undo").click();
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await page.getByRole("button", { name: "美肌" }).click();
+    await expect(page.getByTestId("local-list")).toContainText("美肌 (多角形)");
+    await expect(page.getByTestId("history-last")).toContainText("美肌 (自動)");
+    await expect(page.getByTestId("brush-settings")).toBeVisible();
+    await page.getByTestId("brush-settings").getByRole("button", { name: "消す" }).click();
+    const box = (await page.getByTestId("canvas-host").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.getByTestId("history-last")).toContainText("消しゴム");
+
+    expect(foreign).toEqual([]);
+  });
+
+  test("when no face is found the panel says so and manual masks still work (#176)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    await page.getByRole("tab", { name: "部分補正" }).click();
+    await page.getByRole("button", { name: "美肌" }).click();
+    await expect(page.getByTestId("local-notice")).toContainText("自動選択できませんでした", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("local-list")).toHaveCount(0);
+    await page.getByTestId("local-add-brush").click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByTestId("local-notice")).toHaveCount(0);
   });
 });
