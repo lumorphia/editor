@@ -1,5 +1,6 @@
 import { ASPECT_PRESETS, type GeometryV1 } from "@prismtone/shared/recipe";
 import { Slider } from "./Slider.tsx";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type Props = {
   geometry: GeometryV1;
@@ -32,6 +33,7 @@ export function GeometryPanel({
   onCropping,
   onAspect,
 }: Props) {
+  const { t } = useI18n();
   const rotate = (delta: 90 | -90) => {
     const next = (((geometry.rotation + delta) % 360) + 360) % 360;
     onCommit({ rotation: next as GeometryV1["rotation"], crop: null });
@@ -40,10 +42,10 @@ export function GeometryPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <button type="button" className={btn} onClick={() => rotate(-90)}>
-          左回転
+          {t("左回転", "Rotate left")}
         </button>
         <button type="button" className={btn} onClick={() => rotate(90)}>
-          右回転
+          {t("右回転", "Rotate right")}
         </button>
         <button
           type="button"
@@ -51,11 +53,11 @@ export function GeometryPanel({
           aria-pressed={geometry.flipH}
           onClick={() => onCommit({ flipH: !geometry.flipH })}
         >
-          左右反転
+          {t("左右反転", "Flip horizontal")}
         </button>
       </div>
       <Slider
-        label="水平"
+        label={t("水平", "Straighten")}
         value={geometry.straighten}
         min={-45}
         max={45}
@@ -66,7 +68,7 @@ export function GeometryPanel({
         onReset={() => onCommit({ straighten: 0 })}
       />
       <div>
-        <p className="mb-1 text-sm text-ink-muted">アスペクト比</p>
+        <p className="mb-1 text-sm text-ink-muted">{t("アスペクト比", "Aspect ratio")}</p>
         <div className="flex flex-wrap gap-1.5">
           {ASPECT_PRESETS.map((a) => (
             <button
@@ -76,7 +78,7 @@ export function GeometryPanel({
               aria-pressed={(geometry.aspect ?? "free") === a}
               onClick={() => onAspect(a)}
             >
-              {ASPECT_LABEL[a]}
+              {a === "free" ? t("自由", "Free") : ASPECT_LABEL[a]}
             </button>
           ))}
         </div>
@@ -88,7 +90,7 @@ export function GeometryPanel({
           aria-pressed={cropping}
           onClick={() => onCropping(!cropping)}
         >
-          {cropping ? "トリミング中" : "トリミング"}
+          {cropping ? t("トリミング中", "Cropping") : t("トリミング", "Crop")}
         </button>
         {geometry.crop && (
           <button
@@ -96,7 +98,7 @@ export function GeometryPanel({
             className={btn}
             onClick={() => onCommit({ crop: null, aspect: null })}
           >
-            トリミング解除
+            {t("トリミング解除", "Remove crop")}
           </button>
         )}
       </div>

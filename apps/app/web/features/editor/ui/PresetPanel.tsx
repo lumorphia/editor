@@ -1,4 +1,5 @@
 import { PRESETS } from "@prismtone/shared/recipe";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type Props = {
   activeId: string | null;
@@ -6,6 +7,7 @@ type Props = {
 };
 
 export function PresetPanel({ activeId, onApply }: Props) {
+  const { tx } = useI18n();
   return (
     <div className="grid grid-cols-2 gap-2">
       {PRESETS.map((p) => {
@@ -23,7 +25,7 @@ export function PresetPanel({ activeId, onApply }: Props) {
                 : "border-line-soft hover:bg-surface-hover")
             }
           >
-            {p.name}
+            {tx(p.name)}
           </button>
         );
       })}

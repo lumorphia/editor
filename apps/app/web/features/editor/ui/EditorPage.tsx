@@ -36,6 +36,7 @@ import {
   type PortraitPresetId,
 } from "@prismtone/shared/recipe";
 import { CompareSlider } from "./CompareSlider.tsx";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
   too_large: "30MB を超える画像は読み込めません。",
@@ -83,6 +84,7 @@ function installTestHook(renderer: EditorRenderer, getRecipe: () => EditRecipe) 
 }
 
 export function EditorPage() {
+  const { t } = useI18n();
   const [state, dispatch] = useReducer(editorReducer, initialEditorState);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -452,7 +454,7 @@ export function EditorPage() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
     } catch {
-      dispatch({ type: "ui/error", error: "書き出しに失敗しました。" });
+      dispatch({ type: "ui/error", error: t("書き出しに失敗しました。", "Export failed.") });
     }
   };
 
@@ -465,7 +467,8 @@ export function EditorPage() {
     } catch (error) {
       dispatch({
         type: "ui/error",
-        error: error instanceof Error ? error.message : "書き出しに失敗しました。",
+        error:
+          error instanceof Error ? error.message : t("書き出しに失敗しました。", "Export failed."),
       });
     }
   };
@@ -510,8 +513,12 @@ export function EditorPage() {
   const canExport = hasImage && ready && !state.ui.exporting;
   const lastOp = undoLabel(state.history);
   const nextOp = redoLabel(state.history);
-  const undoTitle = lastOp ? `${lastOp} を取り消す (Ctrl+Z)` : "取り消す操作はありません";
-  const redoTitle = nextOp ? `${nextOp} をやり直す (Ctrl+Shift+Z)` : "やり直す操作はありません";
+  const undoTitle = lastOp
+    ? t(`${lastOp} を取り消す (Ctrl+Z)`, `Undo ${lastOp} (Ctrl+Z)`)
+    : t("取り消す操作はありません", "Nothing to undo");
+  const redoTitle = nextOp
+    ? t(`${nextOp} をやり直す (Ctrl+Shift+Z)`, `Redo ${nextOp} (Ctrl+Shift+Z)`)
+    : t("やり直す操作はありません", "Nothing to redo");
   const canvasRatio = rendererRef.current
     ? rendererRef.current.canvasSize.width / rendererRef.current.canvasSize.height
     : 1;
@@ -534,7 +541,7 @@ export function EditorPage() {
             }}
           />
           <button type="button" className={toolBtn} onClick={() => fileInput.current?.click()}>
-            画像を開く
+            {t("画像を開く", "Open image")}
           </button>
           <button
             type="button"
@@ -544,7 +551,7 @@ export function EditorPage() {
             onClick={() => dispatch({ type: "ui/compare", on: !state.ui.comparing })}
             data-testid="compare-toggle"
           >
-            比較
+            {t("比較", "Compare")}
           </button>
           <button
             type="button"
@@ -555,7 +562,7 @@ export function EditorPage() {
             aria-label={undoTitle}
             data-testid="history-undo"
           >
-            <span aria-hidden="true">←</span> 戻る
+            <span aria-hidden="true">←</span> {t("戻る", "Undo")}
           </button>
           <button
             type="button"
@@ -566,11 +573,11 @@ export function EditorPage() {
             aria-label={redoTitle}
             data-testid="history-redo"
           >
-            進む <span aria-hidden="true">→</span>
+            {t("進む", "Redo")} <span aria-hidden="true">→</span>
           </button>
           {lastOp && (
             <span className="hidden text-xs text-ink-muted md:inline" data-testid="history-last">
-              最後の操作: {lastOp}
+              {t("最後の操作", "Last action")}: {lastOp}
             </span>
           )}
           <button
@@ -579,21 +586,21 @@ export function EditorPage() {
             disabled={!hasImage}
             onClick={() => dispatch({ type: "recipe/reset" })}
           >
-            全リセット
+            {t("全リセット", "Reset all")}
           </button>
           <span className="flex-1" />
           <span
             className="flex items-center gap-1 text-sm"
             role="group"
-            aria-label="表示倍率"
+            aria-label={t("表示倍率", "Zoom")}
             data-testid="zoom-group"
           >
             <button
               type="button"
               className={toolBtn}
               disabled={!hasImage}
-              aria-label="縮小"
-              title="縮小 (ホイール)"
+              aria-label={t("縮小", "Zoom out")}
+              title={t("縮小 (ホイール)", "Zoom out (wheel)")}
               onClick={() => zoomBy(1 / ZOOM_STEP)}
             >
               −
@@ -602,7 +609,7 @@ export function EditorPage() {
               type="button"
               className={toolBtn + " min-w-[4.5rem] tabular-nums"}
               disabled={!hasImage}
-              title="クリックで等倍 (100%)"
+              title={t("クリックで等倍 (100%)", "Click for actual size (100%)")}
               onClick={zoomActual}
               data-testid="zoom-percent"
             >
@@ -612,8 +619,8 @@ export function EditorPage() {
               type="button"
               className={toolBtn}
               disabled={!hasImage}
-              aria-label="拡大"
-              title="拡大 (ホイール)"
+              aria-label={t("拡大", "Zoom in")}
+              title={t("拡大 (ホイール)", "Zoom in (wheel)")}
               onClick={() => zoomBy(ZOOM_STEP)}
             >
               +
@@ -623,9 +630,9 @@ export function EditorPage() {
               className={toolBtn}
               disabled={!hasImage}
               onClick={zoomFit}
-              title="全体が収まる大きさに戻す"
+              title={t("全体が収まる大きさに戻す", "Fit the whole image")}
             >
-              フィット
+              {t("フィット", "Fit")}
             </button>
           </span>
           <button
@@ -635,7 +642,7 @@ export function EditorPage() {
             onClick={onSave}
             data-testid="save"
           >
-            {state.ui.exporting ? "書き出し中…" : "端末に保存"}
+            {state.ui.exporting ? t("書き出し中…", "Exporting…") : t("端末に保存", "Save")}
           </button>
           <button
             type="button"
@@ -643,7 +650,7 @@ export function EditorPage() {
             disabled={!canExport}
             onClick={onPost}
           >
-            投稿へ
+            {t("投稿へ", "Continue to post")}
           </button>
         </div>
         {state.ui.error && (
@@ -667,7 +674,10 @@ export function EditorPage() {
         >
           {!hasImage && (
             <p className="absolute inset-0 grid place-items-center text-sm text-ink-muted">
-              PNG / JPEG をドロップするか「画像を開く」を押してください
+              {t(
+                "PNG / JPEG をドロップするか「画像を開く」を押してください",
+                "Drop a PNG or JPEG here, or select Open image",
+              )}
             </p>
           )}
           {hasImage && state.ui.comparing && !state.ui.cropping && (
@@ -730,7 +740,9 @@ export function EditorPage() {
                 source={{ width: state.source.bitmap.width, height: state.source.bitmap.height }}
                 geometry={recipe.geometry}
                 hint={
-                  state.ui.local.tap === "gear" ? "切りたい装備をタップ" : "キャラクターをタップ"
+                  state.ui.local.tap === "gear"
+                    ? t("切りたい装備をタップ", "Tap the item to select")
+                    : t("キャラクターをタップ", "Tap the character")
                 }
                 onTap={(uv) => void onTap(uv)}
                 onCancel={() => dispatch({ type: "ui/tap", tap: null })}
@@ -768,11 +780,11 @@ export function EditorPage() {
         <div role="tablist" className="flex border-b border-line-soft">
           {(
             [
-              ["presets", "プリセット"],
-              ["adjust", "補正"],
-              ["portrait", "人物補正"],
-              ["local", "部分補正"],
-              ["geometry", "幾何"],
+              ["presets", t("プリセット", "Presets")],
+              ["adjust", t("補正", "Adjust")],
+              ["portrait", t("人物補正", "Portrait")],
+              ["local", t("部分補正", "Local")],
+              ["geometry", t("幾何", "Geometry")],
             ] as const
           ).map(([tool, label]) => (
             <button

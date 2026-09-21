@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { GeometryV1 } from "@prismtone/shared/recipe";
 import { canvasToImageUv, type Point } from "../mask-math.ts";
 import type { Size } from "../render/geometry.ts";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type View = { x: number; y: number; width: number; height: number; scale: number };
 
@@ -22,6 +23,7 @@ type Props = {
  * 画像の外をタップしたら無視する
  */
 export function TapOverlay({ view, source, geometry, hint, onTap, onCancel }: Props) {
+  const { t } = useI18n();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
@@ -50,7 +52,7 @@ export function TapOverlay({ view, source, geometry, hint, onTap, onCancel }: Pr
         className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-sm text-white"
         role="status"
       >
-        {hint} (Esc でやめる)
+        {hint} {t("(Esc でやめる)", "(press Esc to cancel)")}
       </p>
     </div>
   );
