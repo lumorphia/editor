@@ -1,5 +1,5 @@
 import { Container, Rectangle, RenderTexture, Sprite, type Renderer, type Texture } from "pixi.js";
-import type { BrushStrokeV2, EditRecipe, LocalAdjustmentV2 } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, EditRecipe, LocalAdjustment } from "@prismtone/shared/recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
 import { LocalAdjustFilter } from "./local-adjust-filter.ts";
 import { MaskTexture } from "./mask-texture.ts";
@@ -21,8 +21,8 @@ export class DevelopStage {
   private readonly sprite: Sprite;
   private readonly global: AdjustFilter;
   private locals: LocalAdjustFilter[] = [];
-  /** ブラシマスクのテクスチャ (部分補正の id ごと)。マスクのオブジェクトが変わったら描き直す */
-  private masks = new Map<string, { mask: LocalAdjustmentV2["mask"]; texture: MaskTexture }>();
+  /** テクスチャで持つマスク (ブラシ・多角形・ビットマップ、部分補正の id ごと)。マスクのオブジェクトが変わったら描き直す */
+  private masks = new Map<string, { mask: LocalAdjustment["mask"]; texture: MaskTexture }>();
   private readonly source: Size;
   private recipe: EditRecipe;
   private previewMaskId: string | null = null;
@@ -86,7 +86,7 @@ export class DevelopStage {
   /** 描きかけを捨て、レシピにあるストロークだけでマスクを描き直す */
   discardPreviewStroke(id: string): void {
     const entry = this.masks.get(id);
-    if (!entry || entry.mask.kind !== "brush") return;
+    if (!entry || entry.mask.kind === "ellipse") return;
     entry.texture.set(entry.mask);
     this.dirty = true;
   }
@@ -94,12 +94,12 @@ export class DevelopStage {
   /** 描画中のストロークをマスクに足す (レシピに入れる前のプレビュー) */
   previewStroke(id: string, stroke: BrushStrokeV2): void {
     const entry = this.masks.get(id);
-    if (!entry || entry.mask.kind !== "brush") return;
+    if (!entry || entry.mask.kind === "ellipse") return;
     entry.texture.addStroke(stroke, entry.mask.feather);
     this.dirty = true;
   }
 
-  private syncLocals(locals: readonly LocalAdjustmentV2[]): void {
+  private syncLocals(locals: readonly LocalAdjustment[]): void {
     while (this.locals.length > locals.length) this.locals.pop()?.destroy();
     while (this.locals.length < locals.length) {
       this.locals.push(new LocalAdjustFilter(locals[this.locals.length]!, this.source));
@@ -108,7 +108,7 @@ export class DevelopStage {
     locals.forEach((l, i) => {
       const filter = this.locals[i]!;
       filter.setLocal(l, l.id === this.previewMaskId);
-      if (l.mask.kind === "brush") {
+      if (l.mask.kind !== "ellipse") {
         alive.add(l.id);
         let entry = this.masks.get(l.id);
         if (!entry) {

@@ -1,5 +1,5 @@
 import { Filter, GlProgram, Texture, type TextureSource } from "pixi.js";
-import type { LocalAdjustmentV2 } from "@prismtone/shared/recipe";
+import type { LocalAdjustment } from "@prismtone/shared/recipe";
 import { MIN_FEATHER } from "../mask-math.ts";
 import type { Size } from "./geometry.ts";
 import { ADJUST_GLSL, FILTER_VERTEX } from "./adjust-glsl.ts";
@@ -23,12 +23,12 @@ in vec2 vImageUv;
 out vec4 finalColor;
 
 uniform sampler2D uTexture;
-uniform sampler2D uMask;     // ブラシマスク (r)。楕円のときは白 1px
+uniform sampler2D uMask;     // テクスチャのマスク (r。ブラシ・多角形・ビットマップ、invert 適用済み)。楕円のときは白 1px
 uniform vec4 uInputSize;     // .zw = 1 / 中間テクスチャの px
 uniform vec4 uInputClamp;    // 近傍サンプルの範囲 (中間テクスチャの余白に触れない)
 uniform vec4 uOutputFrame;   // .zw = 画像の px サイズ (領域 = 画像矩形)
 uniform vec2 uSourceSize;    // 元画像の px (近傍の間隔を原寸基準にする)
-uniform float uMaskMode;     // 0 = 楕円 (解析的)、1 = ブラシ (テクスチャ)
+uniform float uMaskMode;     // 0 = 楕円 (解析的)、1 = テクスチャ (brush-raster.ts が invert まで済ませている)
 uniform float uSharpen;      // 0..1
 uniform float uSmooth;       // 0..0.6
 
@@ -44,7 +44,7 @@ uniform vec2 uCenter;        // 楕円の中心 (正規化)
 uniform vec2 uRadii;         // 半径 (幅・高さに対する比)
 uniform float uRotation;     // rad
 uniform float uFeather;      // 0..1
-uniform float uInvert;       // 0 / 1
+uniform float uInvert;       // 0 / 1 (楕円だけ。テクスチャは CPU 側で反転済み)
 uniform float uShowMask;     // 1 なら選択範囲を赤で重ねる (UI のマスク表示)
 
 ${ADJUST_GLSL}
@@ -98,7 +98,7 @@ float ellipseMask(void) {
 
 void main(void) {
   vec4 src = texture(uTexture, vTextureCoord);
-  float mask = uMaskMode > 0.5 ? mix(texture(uMask, vImageUv).r, 1.0 - texture(uMask, vImageUv).r, uInvert) : ellipseMask();
+  float mask = uMaskMode > 0.5 ? texture(uMask, vImageUv).r : ellipseMask();
   float m = mask * uAmount;
   vec3 rgb = src.a > 0.0 ? src.rgb / src.a : src.rgb;
   if (m > 0.0) {
@@ -146,7 +146,7 @@ const vec2 = (x: number, y: number): Vec2 => ({
 });
 
 export class LocalAdjustFilter extends Filter {
-  constructor(local: LocalAdjustmentV2, source: Size) {
+  constructor(local: LocalAdjustment, source: Size) {
     super({
       glProgram: GlProgram.from({
         vertex: FILTER_VERTEX,
@@ -183,12 +183,12 @@ export class LocalAdjustFilter extends Filter {
     this.setLocal(local, false);
   }
 
-  /** ブラシマスクのテクスチャ。null で楕円 (解析的) に戻す */
+  /** テクスチャのマスク (ブラシ・多角形・ビットマップ)。null で楕円 (解析的) に戻す */
   setMaskTexture(source: TextureSource | null): void {
     this.resources.uMask = source ?? Texture.WHITE.source;
   }
 
-  setLocal(local: LocalAdjustmentV2, showMask: boolean): void {
+  setLocal(local: LocalAdjustment, showMask: boolean): void {
     const u = this.resources.localUniforms.uniforms as {
       [K in keyof LocalUniforms]: LocalUniforms[K]["value"];
     };
@@ -204,7 +204,7 @@ export class LocalAdjustFilter extends Filter {
     u.uSharpen = a.sharpen / 100;
     u.uSmooth = a.smooth / 100;
     u.uShowMask = showMask ? 1 : 0;
-    u.uMaskMode = local.mask.kind === "brush" ? 1 : 0;
+    u.uMaskMode = local.mask.kind === "ellipse" ? 0 : 1;
     u.uInvert = local.mask.invert ? 1 : 0;
     if (local.mask.kind === "ellipse") {
       const m = local.mask;

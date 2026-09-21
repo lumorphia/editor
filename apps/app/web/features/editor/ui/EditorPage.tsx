@@ -508,7 +508,8 @@ export function EditorPage() {
           {hasImage &&
             state.source &&
             state.ui.tool === "local" &&
-            selectedLocal?.mask.kind === "brush" &&
+            selectedLocal &&
+            selectedLocal.mask.kind !== "ellipse" &&
             !state.ui.comparing &&
             !state.ui.cropping && (
               <BrushOverlay

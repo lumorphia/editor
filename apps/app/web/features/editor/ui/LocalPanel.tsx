@@ -3,21 +3,20 @@ import {
   MAX_LOCAL_ADJUSTMENTS,
   MAX_LOCAL_SMOOTH,
   type LocalAdjustV2,
-  type LocalAdjustmentV2,
+  type LocalAdjustment,
   type LocalPresetId,
-  type MaskV2,
 } from "@prismtone/shared/recipe";
 import { LOCAL_ADJUST_LABELS } from "../labels.ts";
 import type { BrushSettings } from "../state.ts";
 import { Slider } from "./Slider.tsx";
 
 type Props = {
-  list: readonly LocalAdjustmentV2[];
+  list: readonly LocalAdjustment[];
   selectedId: string | null;
   showMask: boolean;
   showHandles: boolean;
   brush: BrushSettings;
-  onAdd: (kind: MaskV2["kind"], presetId?: LocalPresetId) => void;
+  onAdd: (kind: "ellipse" | "brush", presetId?: LocalPresetId) => void;
   onBrush: (brush: BrushSettings) => void;
   onSelect: (id: string | null) => void;
   onRemove: (id: string) => void;
@@ -46,10 +45,17 @@ const ROWS: { key: keyof LocalAdjustV2; min: number; max: number; step: number; 
 const btn =
   "rounded border border-line-soft px-2 py-1 text-xs hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
-function localName(l: LocalAdjustmentV2, index: number): string {
+const MASK_KIND_LABELS: Record<LocalAdjustment["mask"]["kind"], string> = {
+  ellipse: "円形",
+  brush: "ブラシ",
+  polygon: "多角形",
+  bitmap: "切り抜き",
+};
+
+function localName(l: LocalAdjustment, index: number): string {
   if (l.name) return l.name;
   const preset = LOCAL_PRESETS.find((p) => p.id === l.presetId);
-  const kind = l.mask.kind === "ellipse" ? "円形" : "ブラシ";
+  const kind = MASK_KIND_LABELS[l.mask.kind];
   return preset ? `${preset.name} (${kind})` : `部分補正 ${index + 1} (${kind})`;
 }
 
@@ -148,7 +154,7 @@ export function LocalPanel(p: Props) {
           ))}
         </ul>
       )}
-      {selected?.mask.kind === "brush" && (
+      {selected && selected.mask.kind !== "ellipse" && (
         <div className="space-y-2 rounded border border-line-soft p-2" data-testid="brush-settings">
           <div className="flex items-center gap-2">
             <span className="text-xs text-ink-muted">キャンバスをなぞって範囲を塗る</span>

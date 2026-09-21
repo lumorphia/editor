@@ -14,9 +14,9 @@ import {
   type EditRecipe,
   type GeometryV1,
   type LocalAdjustV2,
-  type LocalAdjustmentV2,
+  type LocalAdjustment,
   type LocalPresetId,
-  type MaskV2,
+  type Mask,
 } from "@prismtone/shared/recipe";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
 import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
@@ -74,7 +74,7 @@ export type EditorAction =
   | { type: "recipe/reset" }
   | {
       type: "local/add";
-      kind: MaskV2["kind"];
+      kind: "ellipse" | "brush";
       presetId?: LocalPresetId | undefined;
       /** 円形の初期位置 (画像の正規化座標)。省くと画像の中央 */
       at?: EllipsePlacement | undefined;
@@ -86,8 +86,8 @@ export type EditorAction =
   | { type: "local/adjust-commit"; id: string; key: keyof LocalAdjustV2; value: number }
   | { type: "local/amount-preview"; id: string; value: number }
   | { type: "local/amount-commit"; id: string; value: number }
-  | { type: "local/mask-preview"; id: string; mask: MaskV2 }
-  | { type: "local/mask-commit"; id: string; mask: MaskV2 }
+  | { type: "local/mask-preview"; id: string; mask: Mask }
+  | { type: "local/mask-commit"; id: string; mask: Mask }
   | { type: "local/preset"; id: string; presetId: LocalPresetId }
   | { type: "local/stroke-commit"; id: string; stroke: BrushStrokeV2 }
   | { type: "ui/show-mask"; on: boolean }
@@ -140,7 +140,7 @@ const withGeometry = (r: EditRecipe, patch: Partial<GeometryV1>): EditRecipe => 
 function withLocal(
   r: EditRecipe,
   id: string,
-  update: (local: LocalAdjustmentV2) => LocalAdjustmentV2,
+  update: (local: LocalAdjustment) => LocalAdjustment,
 ): EditRecipe | null {
   const index = r.localAdjustments.findIndex((l) => l.id === id);
   if (index < 0) return null;
@@ -153,7 +153,7 @@ function withLocal(
 /** 手で値を変えたらプリセットの表示は外す (全体の補正と同じ原則) */
 const withLocalValue =
   (key: keyof LocalAdjustV2, value: number) =>
-  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({
+  (l: LocalAdjustment): LocalAdjustment => ({
     ...l,
     presetId: null,
     adjust: { ...l.adjust, [key]: value },
@@ -161,11 +161,11 @@ const withLocalValue =
 
 const withLocalAmount =
   (value: number) =>
-  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({ ...l, amount: value });
+  (l: LocalAdjustment): LocalAdjustment => ({ ...l, amount: value });
 
 const withLocalMask =
-  (mask: MaskV2) =>
-  (l: LocalAdjustmentV2): LocalAdjustmentV2 => ({ ...l, mask });
+  (mask: Mask) =>
+  (l: LocalAdjustment): LocalAdjustment => ({ ...l, mask });
 
 let localSeq = 0;
 /** レシピ内で一意ならよい。時刻 + 連番で、下書きから戻したものとぶつからないようにする */
@@ -178,7 +178,7 @@ function newLocalId(): string {
 function localPreview(
   state: EditorState,
   id: string,
-  update: (l: LocalAdjustmentV2) => LocalAdjustmentV2,
+  update: (l: LocalAdjustment) => LocalAdjustment,
 ): EditorState {
   const next = withLocal(state.history.present, id, update);
   if (!next) return state;
@@ -192,7 +192,7 @@ function localPreview(
 function localCommit(
   state: EditorState,
   id: string,
-  update: (l: LocalAdjustmentV2) => LocalAdjustmentV2,
+  update: (l: LocalAdjustment) => LocalAdjustment,
   label: string,
 ): EditorState {
   const base = state.dragBase ?? state.history.present;
@@ -287,7 +287,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "local/add": {
       if (history.present.localAdjustments.length >= MAX_LOCAL_ADJUSTMENTS) return state;
       const preset = action.presetId ? findLocalPreset(action.presetId) : undefined;
-      const base: LocalAdjustmentV2 = {
+      const base: LocalAdjustment = {
         ...DEFAULT_LOCAL_ADJUSTMENT,
         id: newLocalId(),
         mask:
@@ -359,8 +359,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       );
     }
     case "local/stroke-commit": {
+      // ブラシ・多角形・ビットマップ (strokes を持つマスク) にストロークを足す。自動で置いたマスクもブラシで直せる
       const target = history.present.localAdjustments.find((l) => l.id === action.id);
-      if (!target || target.mask.kind !== "brush") return state;
+      if (!target || target.mask.kind === "ellipse") return state;
       if (target.mask.strokes.length >= MAX_BRUSH_STROKES) return state;
       const mask = target.mask;
       return localCommit(

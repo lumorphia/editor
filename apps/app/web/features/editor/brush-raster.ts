@@ -1,5 +1,14 @@
-import { MAX_BRUSH_POINTS, type BrushMaskV2, type BrushStrokeV2 } from "@prismtone/shared/recipe";
-import type { Point } from "./mask-math.ts";
+import {
+  MAX_BRUSH_POINTS,
+  decodeRle,
+  type BitmapMaskV3,
+  type BrushMaskV2,
+  type BrushStrokeV2,
+  type Mask,
+  type PolygonMaskV3,
+  type StrokedMask,
+} from "@prismtone/shared/recipe";
+import { ellipseMaskValue, type Point } from "./mask-math.ts";
 import type { Size } from "./render/geometry.ts";
 
 /**
@@ -90,6 +99,10 @@ export function stampStroke(raster: MaskRaster, stroke: BrushStrokeV2, feather: 
   }
 }
 
+function invertRaster(raster: MaskRaster): void {
+  for (let i = 0; i < raster.data.length; i++) raster.data[i] = 255 - raster.data[i]!;
+}
+
 /** マスク全体をゼロから描く (undo・下書き復元・書き出し) */
 export function rasterizeBrushMask(
   mask: BrushMaskV2,
@@ -98,9 +111,159 @@ export function rasterizeBrushMask(
 ): MaskRaster {
   const raster = createMaskRaster(source, maxEdge);
   for (const stroke of mask.strokes) stampStroke(raster, stroke, mask.feather);
-  if (mask.invert)
-    for (let i = 0; i < raster.data.length; i++) raster.data[i] = 255 - raster.data[i]!;
+  if (mask.invert) invertRaster(raster);
   return raster;
+}
+
+/**
+ * 多角形 (v3) の下地を走査線で塗る。輪は外周 + 穴で、偶奇 (交差回数が奇数なら内側) で塗るので
+ * 顔の輪郭から目・口を抜ける。点は正規化座標
+ */
+function fillPolygon(raster: MaskRaster, rings: PolygonMaskV3["rings"]): void {
+  const { width, height, data } = raster;
+  const edges: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!;
+      const b = ring[(i + 1) % ring.length]!;
+      edges.push({ x0: a.x * width, y0: a.y * height, x1: b.x * width, y1: b.y * height });
+    }
+  }
+  const xs: number[] = [];
+  for (let y = 0; y < height; y++) {
+    const cy = y + 0.5;
+    xs.length = 0;
+    for (const e of edges) {
+      // 半開区間で数えて、頂点を 2 回数えない
+      if (e.y0 <= cy === e.y1 <= cy) continue;
+      xs.push(e.x0 + ((cy - e.y0) * (e.x1 - e.x0)) / (e.y1 - e.y0));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const from = Math.max(0, Math.round(xs[k]!));
+      const to = Math.min(width, Math.round(xs[k + 1]!));
+      if (to > from) data.fill(255, y * width + from, y * width + to);
+    }
+  }
+}
+
+/** 箱ぼかしを縦横に 2 回 (三角形のカーネル相当)。radius は px */
+function blurRaster(raster: MaskRaster, radius: number): void {
+  const r = Math.round(radius);
+  if (r < 1) return;
+  const { width, height } = raster;
+  const pass = (src: Uint8ClampedArray, horizontal: boolean): Uint8ClampedArray => {
+    const out = new Uint8ClampedArray(src.length);
+    const len = horizontal ? width : height;
+    const lines = horizontal ? height : width;
+    const idx = (line: number, i: number) => (horizontal ? line * width + i : i * width + line);
+    for (let line = 0; line < lines; line++) {
+      let sum = 0;
+      for (let i = -r; i <= r; i++) sum += src[idx(line, Math.min(len - 1, Math.max(0, i)))]!;
+      for (let i = 0; i < len; i++) {
+        out[idx(line, i)] = sum / (2 * r + 1);
+        sum += src[idx(line, Math.min(len - 1, i + r + 1))]! - src[idx(line, Math.max(0, i - r))]!;
+      }
+    }
+    return out;
+  };
+  for (let k = 0; k < 2; k++) {
+    raster.data = pass(raster.data, true);
+    raster.data = pass(raster.data, false);
+  }
+}
+
+/** feather (0..1) を px に。長辺の 5% まで */
+const featherPx = (feather: number, raster: MaskRaster) =>
+  feather * 0.05 * Math.max(raster.width, raster.height);
+
+export function rasterizePolygonMask(
+  mask: PolygonMaskV3,
+  source: Size,
+  maxEdge = MASK_RASTER_MAX_EDGE,
+): MaskRaster {
+  const raster = createMaskRaster(source, maxEdge);
+  fillPolygon(raster, mask.rings);
+  blurRaster(raster, featherPx(mask.feather, raster));
+  for (const stroke of mask.strokes) stampStroke(raster, stroke, mask.feather);
+  if (mask.invert) invertRaster(raster);
+  return raster;
+}
+
+/** ビットマップ (v3) を最近傍でラスタの寸法に広げる */
+export function rasterizeBitmapMask(
+  mask: BitmapMaskV3,
+  source: Size,
+  maxEdge = MASK_RASTER_MAX_EDGE,
+): MaskRaster {
+  const raster = createMaskRaster(source, maxEdge);
+  const bits = decodeRle(mask.rle, mask.width * mask.height);
+  const { width, height, data } = raster;
+  for (let y = 0; y < height; y++) {
+    const by = Math.min(mask.height - 1, Math.floor(((y + 0.5) / height) * mask.height));
+    for (let x = 0; x < width; x++) {
+      const bx = Math.min(mask.width - 1, Math.floor(((x + 0.5) / width) * mask.width));
+      data[y * width + x] = bits[by * mask.width + bx] ? 255 : 0;
+    }
+  }
+  blurRaster(raster, featherPx(mask.feather, raster));
+  for (const stroke of mask.strokes) stampStroke(raster, stroke, mask.feather);
+  if (mask.invert) invertRaster(raster);
+  return raster;
+}
+
+/** strokes を持つマスク (brush / polygon / bitmap) をゼロから描く */
+export function rasterizeMask(
+  mask: StrokedMask,
+  source: Size,
+  maxEdge = MASK_RASTER_MAX_EDGE,
+): MaskRaster {
+  switch (mask.kind) {
+    case "brush":
+      return rasterizeBrushMask(mask, source, maxEdge);
+    case "polygon":
+      return rasterizePolygonMask(mask, source, maxEdge);
+    case "bitmap":
+      return rasterizeBitmapMask(mask, source, maxEdge);
+  }
+}
+
+/** 1 点での多角形マスクの値 (0/1、feather と strokes は見ない)。偶奇の参照実装 */
+export function polygonMaskValue(uv: Point, mask: PolygonMaskV3): number {
+  let inside = false;
+  for (const ring of mask.rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i]!;
+      const b = ring[j]!;
+      if (a.y > uv.y !== b.y > uv.y && uv.x < a.x + ((uv.y - a.y) * (b.x - a.x)) / (b.y - a.y))
+        inside = !inside;
+    }
+  }
+  const v = inside ? 1 : 0;
+  return mask.invert ? 1 - v : v;
+}
+
+/** 1 点でのマスクの値 (参照実装)。種類で振り分ける */
+export function maskValue(uv: Point, mask: Mask, source: Size): number {
+  switch (mask.kind) {
+    case "ellipse":
+      return ellipseMaskValue(uv, mask, source);
+    case "brush":
+      return brushMaskValue(uv, mask, source);
+    case "polygon":
+      return polygonMaskValue(uv, mask);
+    case "bitmap":
+      return bitmapMaskValue(uv, mask);
+  }
+}
+
+/** 1 点でのビットマップマスクの値 (0/1、feather と strokes は見ない) */
+export function bitmapMaskValue(uv: Point, mask: BitmapMaskV3): number {
+  const bits = decodeRle(mask.rle, mask.width * mask.height);
+  const bx = Math.min(mask.width - 1, Math.floor(uv.x * mask.width));
+  const by = Math.min(mask.height - 1, Math.floor(uv.y * mask.height));
+  const v = bits[by * mask.width + bx] ? 1 : 0;
+  return mask.invert ? 1 - v : v;
 }
 
 /**
