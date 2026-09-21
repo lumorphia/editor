@@ -7,7 +7,7 @@ import {
   type LocalPresetId,
 } from "@prismtone/shared/recipe";
 import { LOCAL_ADJUST_LABELS } from "../labels.ts";
-import type { BrushSettings } from "../state.ts";
+import type { BrushSettings, InferenceStatus } from "../state.ts";
 import { Slider } from "./Slider.tsx";
 
 type Props = {
@@ -16,7 +16,11 @@ type Props = {
   showMask: boolean;
   showHandles: boolean;
   brush: BrushSettings;
+  inference: InferenceStatus;
+  notice: string | null;
   onAdd: (kind: "ellipse" | "brush", presetId?: LocalPresetId) => void;
+  /** 瞳・美肌: 顔を検出してマスクを自動で置く (#176)。無ければ手動の追加に落ちる */
+  onAuto?: ((presetId: "eyes" | "skin") => void) | undefined;
   onBrush: (brush: BrushSettings) => void;
   onSelect: (id: string | null) => void;
   onRemove: (id: string) => void;
@@ -63,6 +67,7 @@ function localName(l: LocalAdjustment, index: number): string {
 export function LocalPanel(p: Props) {
   const selected = p.list.find((l) => l.id === p.selectedId) ?? null;
   const full = p.list.length >= MAX_LOCAL_ADJUSTMENTS;
+  const busy = p.inference.status !== "idle";
   return (
     <div className="space-y-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -202,7 +207,9 @@ export function LocalPanel(p: Props) {
         <p className="mb-1 text-xs text-ink-muted">
           {selected
             ? "選択中の範囲に適用"
-            : "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)"}
+            : p.onAuto
+              ? "瞳・美肌は顔を認識して置きます (装備はブラシで塗る)"
+              : "新しいマスクを追加して適用 (瞳・美肌は円形、装備はブラシ)"}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {LOCAL_PRESETS.map((preset) => (
@@ -212,17 +219,29 @@ export function LocalPanel(p: Props) {
               className={btn + " aria-pressed:bg-accent aria-pressed:text-accent-ink"}
               aria-pressed={selected?.presetId === preset.id}
               title={preset.hint}
-              disabled={!selected && full}
-              onClick={() =>
-                selected
-                  ? p.onPreset(selected.id, preset.id)
-                  : p.onAdd(preset.id === "gear" ? "brush" : "ellipse", preset.id)
-              }
+              disabled={(!selected && full) || busy}
+              onClick={() => {
+                if (selected) return p.onPreset(selected.id, preset.id);
+                if (p.onAuto && preset.id !== "gear") return p.onAuto(preset.id);
+                p.onAdd(preset.id === "gear" ? "brush" : "ellipse", preset.id);
+              }}
             >
               {preset.name}
             </button>
           ))}
         </div>
+        {busy && (
+          <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="inference-status">
+            {p.inference.status === "loading" && p.inference.progress
+              ? `認識用のデータを読み込んでいます (${Math.round((p.inference.progress.loaded / p.inference.progress.total) * 100)}%)`
+              : "顔を認識しています…"}
+          </p>
+        )}
+        {p.notice && !busy && (
+          <p className="mt-1 text-xs text-ink-muted" role="status" data-testid="local-notice">
+            {p.notice}
+          </p>
+        )}
       </div>
       {selected && (
         <div className="space-y-2" data-testid="local-sliders">

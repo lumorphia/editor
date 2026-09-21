@@ -27,6 +27,19 @@ export type Tool = "adjust" | "geometry" | "presets" | "local";
 /** 円形マスクの初期配置 (今見えている範囲の中央に置くため) */
 export type EllipsePlacement = { cx: number; cy: number; rx: number; ry: number };
 
+/** ブラウザ内の認識 (#176) の進み具合。loading はモデルの取得、running は検出中 */
+export type InferenceStatus = {
+  readonly status: "idle" | "loading" | "running";
+  readonly progress: { loaded: number; total: number } | null;
+};
+
+/** 自動選択で一度に足す部分補正 */
+export type AutoLocalItem = {
+  readonly mask: Mask;
+  readonly presetId: LocalPresetId;
+  readonly name?: string | undefined;
+};
+
 export type BrushSettings = {
   readonly mode: BrushStrokeV2["mode"];
   /** 直径。画像の長辺に対する比 */
@@ -59,6 +72,9 @@ export type EditorState = {
       readonly showHandles: boolean;
       /** ブラシの設定。ストロークごとにレシピへ写す */
       readonly brush: BrushSettings;
+      readonly inference: InferenceStatus;
+      /** 自動選択の結果の一言 (失敗、目を閉じている、など)。次の操作で消える */
+      readonly notice: string | null;
     };
   };
 };
@@ -79,6 +95,13 @@ export type EditorAction =
       /** 円形の初期位置 (画像の正規化座標)。省くと画像の中央 */
       at?: EllipsePlacement | undefined;
     }
+  | {
+      /** 自動選択 (#176 / #177): 複数の部分補正を 1 手で足す。入り切らなければ何もしない */
+      type: "local/add-auto";
+      items: readonly AutoLocalItem[];
+      label: string;
+      groupId?: string | undefined;
+    }
   | { type: "local/remove"; id: string }
   | { type: "local/select"; id: string | null }
   | { type: "local/toggle-visible"; id: string }
@@ -94,6 +117,8 @@ export type EditorAction =
   | { type: "ui/drawing"; on: boolean }
   | { type: "ui/show-handles"; on: boolean }
   | { type: "ui/brush"; brush: BrushSettings }
+  | { type: "ui/inference"; inference: InferenceStatus }
+  | { type: "ui/notice"; notice: string | null }
   | { type: "history/undo" }
   | { type: "history/redo" }
   | { type: "ui/tool"; tool: Tool }
@@ -121,6 +146,8 @@ export const initialEditorState: EditorState = {
       drawing: false,
       showHandles: true,
       brush: { mode: "add", size: 0.08, hardness: 0.7 },
+      inference: { status: "idle", progress: null },
+      notice: null,
     },
   },
 };
@@ -207,6 +234,11 @@ function localCommit(
 
 function selectLocal(state: EditorState, selectedId: string | null): EditorState {
   return { ...state, ui: { ...state.ui, local: { ...state.ui.local, selectedId } } };
+}
+
+function withNotice(state: EditorState, notice: string | null): EditorState {
+  if (state.ui.local.notice === notice) return state;
+  return { ...state, ui: { ...state.ui, local: { ...state.ui.local, notice } } };
 }
 
 /** 選択中の id がレシピから消えていたら選択を外す (undo / リセット後) */
@@ -304,7 +336,39 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return {
         ...selectLocal(state, local.id),
         history: commit(history, next, label),
-        ui: { ...state.ui, tool: "local", local: { ...state.ui.local, selectedId: local.id } },
+        ui: {
+          ...state.ui,
+          tool: "local",
+          local: { ...state.ui.local, selectedId: local.id, notice: null },
+        },
+      };
+    }
+    case "local/add-auto": {
+      const room = MAX_LOCAL_ADJUSTMENTS - history.present.localAdjustments.length;
+      if (action.items.length === 0 || action.items.length > room) return state;
+      const added = action.items.map((item) => {
+        const preset = findLocalPreset(item.presetId);
+        const base: LocalAdjustment = {
+          ...DEFAULT_LOCAL_ADJUSTMENT,
+          id: newLocalId(),
+          name: item.name ?? null,
+          groupId: action.groupId ?? null,
+          mask: item.mask,
+        };
+        return preset ? applyLocalPreset(base, preset) : base;
+      });
+      const next = {
+        ...history.present,
+        localAdjustments: [...history.present.localAdjustments, ...added],
+      };
+      return {
+        ...state,
+        history: commit(history, next, action.label),
+        ui: {
+          ...state.ui,
+          tool: "local",
+          local: { ...state.ui.local, selectedId: added[0]!.id, notice: null },
+        },
       };
     }
     case "local/remove": {
@@ -373,6 +437,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case "ui/brush":
       return { ...state, ui: { ...state.ui, local: { ...state.ui.local, brush: action.brush } } };
+    case "ui/inference":
+      return {
+        ...state,
+        ui: { ...state.ui, local: { ...state.ui.local, inference: action.inference } },
+      };
+    case "ui/notice":
+      return withNotice(state, action.notice);
     case "ui/show-handles":
       return {
         ...state,
