@@ -319,7 +319,7 @@ test.describe("editor", () => {
     await page.getByRole("tab", { name: "部分補正" }).click();
     // 手動の流れ: ブラシを足してから装備強調のプリセット (何も選んでいないときの「装備強調」はタップで切る、#177)
     await page.getByTestId("local-add-brush").click();
-    await page.getByRole("button", { name: "装備強調" }).click();
+    await page.getByRole("button", { name: "装備強調", exact: true }).click();
     await expect(page.getByTestId("local-list")).toContainText("装備強調 (ブラシ)");
     await expect(page.getByTestId("brush-settings")).toBeVisible();
     await expect(page.getByTestId("brush-overlay")).toBeVisible();
@@ -398,7 +398,7 @@ test.describe("editor", () => {
     // 手動の流れ: 円形を足してから瞳強調のプリセットを当てる (何も選んでいないときの「瞳強調」は顔の自動選択、#176)
     await page.getByTestId("local-add-ellipse").click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
-    await page.getByRole("button", { name: "瞳強調" }).click();
+    await page.getByRole("button", { name: "瞳強調", exact: true }).click();
     await expect(page.getByTestId("local-list")).toContainText("瞳強調 (円形)");
     await expect(page.getByTestId("history-last")).toContainText("部分補正: 瞳強調");
     await expect(page.getByTestId("ellipse-overlay")).toBeVisible();
@@ -429,7 +429,7 @@ test.describe("editor", () => {
     await page.keyboard.press("ArrowRight");
     await expect(page.getByTestId("history-last")).toContainText("部分補正: 露光量 +0.35");
     // 手で変えたのでプリセットの強調は外れる
-    await expect(page.getByRole("button", { name: "瞳強調" })).toHaveAttribute(
+    await expect(page.getByRole("button", { name: "瞳強調", exact: true })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -782,7 +782,7 @@ test.describe("editor", () => {
     await expect(page.getByRole("alert")).toContainText("PNG または JPEG");
   });
 
-  test("瞳強調 and 美肌 place masks from face detection, and the polygon can be erased with the brush (#176)", async ({
+  test("瞳強調の選択中でも美肌を自動選択で追加でき、範囲をブラシで直せる (#176, #210)", async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -801,7 +801,7 @@ test.describe("editor", () => {
     await page.getByRole("tab", { name: "部分補正" }).click();
 
     // 瞳: 初回はモデルを読み込む (数 MB) ので待つ。両目に円形が 2 つ、1 手の履歴
-    await page.getByRole("button", { name: "瞳強調" }).click();
+    await page.getByRole("button", { name: "瞳強調", exact: true }).click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(2, {
       timeout: 60_000,
     });
@@ -813,10 +813,9 @@ test.describe("editor", () => {
     const host = await page.getByTestId("canvas-host").boundingBox();
     expect(handle && host && handle.y < host.y + host.height * 0.6).toBe(true);
 
-    // 2 つで 1 手なので undo で両方消える。美肌: 顔の輪郭の多角形が 1 つ増え、選択されてブラシで直せる
-    await page.getByTestId("history-undo").click();
-    await expect(page.getByTestId("local-list")).toHaveCount(0);
-    await page.getByRole("button", { name: "美肌" }).click();
+    // 瞳が選択中でも、美肌を別の自動選択として追加できる。顔の輪郭が選択され、ブラシで直せる
+    await page.getByTestId("local-auto-skin").click();
+    await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(3);
     await expect(page.getByTestId("local-list")).toContainText("美肌 (多角形)");
     await expect(page.getByTestId("history-last")).toContainText("美肌 (自動)");
     await expect(page.getByTestId("brush-settings")).toBeVisible();
@@ -836,7 +835,7 @@ test.describe("editor", () => {
   }) => {
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
-    await page.getByRole("button", { name: "美肌" }).click();
+    await page.getByRole("button", { name: "美肌", exact: true }).click();
     await expect(page.getByTestId("local-notice")).toContainText("自動選択できませんでした", {
       timeout: 60_000,
     });
@@ -864,7 +863,7 @@ test.describe("editor", () => {
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
 
     // 装備強調: モデルの読み込みと埋め込み (マルチスレッドの WASM で 3〜4 秒) のあとタップ待ちになる
-    await page.getByRole("button", { name: "装備強調" }).click();
+    await page.getByRole("button", { name: "装備強調", exact: true }).click();
     await expect(page.getByTestId("tap-overlay")).toBeVisible({ timeout: 120_000 });
     const host = (await page.getByTestId("canvas-host").boundingBox())!;
     // 胸のあたり (赤いコート) をタップ
