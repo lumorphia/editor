@@ -1,8 +1,9 @@
 import {
   LOCAL_PRESETS,
   MAX_LOCAL_ADJUSTMENTS,
+  MAX_LOCAL_BLUR,
   MAX_LOCAL_SMOOTH,
-  type LocalAdjustV2,
+  type LocalAdjust,
   type LocalAdjustment,
   type LocalPresetId,
 } from "@prismtone/shared/recipe";
@@ -37,13 +38,13 @@ type Props = {
   onPreset: (id: string, presetId: LocalPresetId) => void;
   onAmountPreview: (id: string, value: number) => void;
   onAmountCommit: (id: string, value: number) => void;
-  onAdjustPreview: (id: string, key: keyof LocalAdjustV2, value: number) => void;
-  onAdjustCommit: (id: string, key: keyof LocalAdjustV2, value: number) => void;
+  onAdjustPreview: (id: string, key: keyof LocalAdjust, value: number) => void;
+  onAdjustCommit: (id: string, key: keyof LocalAdjust, value: number) => void;
   onShowMask: (on: boolean) => void;
   onShowHandles: (on: boolean) => void;
 };
 
-const ROWS: { key: keyof LocalAdjustV2; min: number; max: number; step: number; ev?: boolean }[] = [
+const ROWS: { key: keyof LocalAdjust; min: number; max: number; step: number; ev?: boolean }[] = [
   { key: "exposure", min: -5, max: 5, step: 0.05, ev: true },
   { key: "contrast", min: -100, max: 100, step: 1 },
   { key: "highlights", min: -100, max: 100, step: 1 },
@@ -53,6 +54,10 @@ const ROWS: { key: keyof LocalAdjustV2; min: number; max: number; step: number; 
   { key: "saturation", min: -100, max: 100, step: 1 },
   { key: "sharpen", min: 0, max: 100, step: 1 },
   { key: "smooth", min: 0, max: MAX_LOCAL_SMOOTH, step: 1 },
+  { key: "blur", min: 0, max: MAX_LOCAL_BLUR, step: 1 },
+  { key: "bloom", min: 0, max: 100, step: 1 },
+  { key: "vignette", min: 0, max: 100, step: 1 },
+  { key: "clarity", min: -100, max: 100, step: 1 },
 ];
 
 const btn =
@@ -259,7 +264,27 @@ export function LocalPanel(p: Props) {
             </button>
           ))}
         </div>
-        {p.onAuto && !selected && (
+        {p.onAuto && selected && (
+          <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="local-auto-presets">
+            <span className="text-xs text-ink-muted">
+              {t("自動選択で追加:", "Add with auto selection:")}
+            </span>
+            {LOCAL_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={btn}
+                title={tx(preset.hint)}
+                disabled={full || busy}
+                onClick={() => p.onAuto?.(preset.id)}
+                data-testid={`local-auto-${preset.id}`}
+              >
+                {t(`${preset.name}を追加`, `Add ${tx(preset.name)}`)}
+              </button>
+            ))}
+          </div>
+        )}
+        {p.onAuto && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs text-ink-muted">
               {t("タップで範囲だけ選ぶ:", "Select an area by tapping:")}
@@ -355,7 +380,9 @@ export function LocalPanel(p: Props) {
               format={
                 r.ev
                   ? (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`
-                  : (v) => `${v > 0 ? "+" : ""}${v}`
+                  : r.key === "blur"
+                    ? (v) => `${v}px`
+                    : (v) => `${v > 0 ? "+" : ""}${v}`
               }
               onPreview={(v) => p.onAdjustPreview(selected.id, r.key, v)}
               onCommit={(v) => p.onAdjustCommit(selected.id, r.key, v)}

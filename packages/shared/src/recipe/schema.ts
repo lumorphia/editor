@@ -18,6 +18,8 @@ export const MAX_LOCAL_ADJUSTMENTS_V2 = 8;
 export const MAX_BRUSH_STROKES = 64;
 export const MAX_BRUSH_POINTS = 512;
 export const MAX_LOCAL_SMOOTH = 60;
+/** 背景ぼかしの半径 (元画像 px)。固定 3x3 カーネルの間隔として使う */
+export const MAX_LOCAL_BLUR = 32;
 
 export const adjustSchemaV1 = z.object({
   exposure: z.number().min(-5).max(5),
@@ -207,13 +209,41 @@ export type EditRecipeV3 = z.infer<typeof editRecipeSchemaV3>;
 /** strokes を持つマスク (ブラシで直せるもの) */
 export type StrokedMask = Exclude<MaskV3, EllipseMaskV2>;
 
+// ---- v4: 人物補正の追加効果 (#184) ----
+// v3 までの部分補正の意味を変えず、空間効果を中立値 0 で追加する。
+
+export const localAdjustSchemaV4 = localAdjustSchemaV2.extend({
+  /** 背景ぼかしの半径 (元画像 px)。0..32 */
+  blur: z.number().min(0).max(MAX_LOCAL_BLUR),
+  /** 高輝度成分をぼかして加算する発光。0..100 */
+  bloom: z.number().min(0).max(100),
+  /** 画像中心から周辺を減光する強さ。0..100 */
+  vignette: z.number().min(0).max(100),
+  /** 近傍平均との差による局所コントラスト。-100..100 */
+  clarity: pct,
+});
+
+export const localAdjustmentSchemaV4 = localAdjustmentSchemaV3.extend({
+  adjust: localAdjustSchemaV4,
+});
+
+export const editRecipeSchemaV4 = editRecipeSchemaV1.extend({
+  version: z.literal(4),
+  localAdjustments: z.array(localAdjustmentSchemaV4).max(MAX_LOCAL_ADJUSTMENTS),
+});
+
+export type LocalAdjustV4 = z.infer<typeof localAdjustSchemaV4>;
+export type LocalAdjustmentV4 = z.infer<typeof localAdjustmentSchemaV4>;
+export type EditRecipeV4 = z.infer<typeof editRecipeSchemaV4>;
+
 /** 現行のレシピ型。version を上げたらここを差し替える。 */
-export type EditRecipe = EditRecipeV3;
-export type LocalAdjustment = LocalAdjustmentV3;
+export type EditRecipe = EditRecipeV4;
+export type LocalAdjust = LocalAdjustV4;
+export type LocalAdjustment = LocalAdjustmentV4;
 export type Mask = MaskV3;
-export const editRecipeSchema = editRecipeSchemaV3;
-export const CURRENT_RECIPE_VERSION = 3 as const;
-export const localAdjustmentSchema = localAdjustmentSchemaV3;
+export const editRecipeSchema = editRecipeSchemaV4;
+export const CURRENT_RECIPE_VERSION = 4 as const;
+export const localAdjustmentSchema = localAdjustmentSchemaV4;
 
 /**
  * API の入出力で受けるレシピ。旧版の投稿はそのまま返り、投稿時も旧版のクライアントを受ける。
@@ -223,6 +253,7 @@ export const editRecipeInputSchema = z.union([
   editRecipeSchemaV1,
   editRecipeSchemaV2,
   editRecipeSchemaV3,
+  editRecipeSchemaV4,
 ]);
 export type EditRecipeInput = z.infer<typeof editRecipeInputSchema>;
 
@@ -245,7 +276,7 @@ export const DEFAULT_GEOMETRY: GeometryV1 = Object.freeze({
   aspect: null,
 });
 
-export const DEFAULT_LOCAL_ADJUST: LocalAdjustV2 = Object.freeze({
+export const DEFAULT_LOCAL_ADJUST_V2: LocalAdjustV2 = Object.freeze({
   exposure: 0,
   contrast: 0,
   highlights: 0,
@@ -255,6 +286,14 @@ export const DEFAULT_LOCAL_ADJUST: LocalAdjustV2 = Object.freeze({
   saturation: 0,
   sharpen: 0,
   smooth: 0,
+});
+
+export const DEFAULT_LOCAL_ADJUST: LocalAdjustV4 = Object.freeze({
+  ...DEFAULT_LOCAL_ADJUST_V2,
+  blur: 0,
+  bloom: 0,
+  vignette: 0,
+  clarity: 0,
 });
 
 /** 画像の中央、短辺の 1/8 程度の円 */
@@ -287,7 +326,7 @@ export const DEFAULT_LOCAL_ADJUSTMENT: Omit<LocalAdjustment, "id" | "mask"> = Ob
 });
 
 export const DEFAULT_RECIPE: EditRecipe = Object.freeze({
-  version: 3,
+  version: 4,
   presetId: null,
   adjust: DEFAULT_ADJUST,
   geometry: DEFAULT_GEOMETRY,

@@ -1,4 +1,4 @@
-import type { AdjustV1, EditRecipe, LocalAdjustV2 } from "@prismtone/shared/recipe";
+import type { AdjustV1, EditRecipe, LocalAdjust } from "@prismtone/shared/recipe";
 import type { Point } from "./mask-math.ts";
 import { maskValue } from "./brush-raster.ts";
 import type { Size } from "./render/geometry.ts";
@@ -10,6 +10,11 @@ import type { Size } from "./render/geometry.ts";
  */
 
 export type RGB = readonly [number, number, number];
+export type ImageSampler = (uv: Point) => RGB;
+
+const BLOOM_RADIUS_PX = 8;
+const CLARITY_RADIUS_PX = 4;
+const BLOOM_THRESHOLD = 0.65;
 
 export function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -94,27 +99,98 @@ export function applyAdjust(input: RGB, adjust: AdjustV1): RGB {
 
 /**
  * 部分補正の色調整。全体の補正と同じ式で vibrance だけ無い (#109)。
- * sharpen / smooth は近傍を見る処理なので、この点ごとの参照実装には含めない
- * (E2E の判定点はマスク内の平坦部とマスク外に限る、docs/design/08 §7)
+ * sharpen / smooth は既存テストとの互換のため点ごとの参照には含めない。#184 の空間効果は
+ * context があるとき 3x3 の近傍を参照し、GLSL と同じ式で計算する。
  */
-export function applyLocalAdjust(input: RGB, adjust: LocalAdjustV2): RGB {
-  const { sharpen: _sharpen, smooth: _smooth, ...rest } = adjust;
-  return applyAdjust(input, { ...rest, vibrance: 0 });
+export function applyLocalAdjust(
+  input: RGB,
+  adjust: LocalAdjust,
+  context?: { uv: Point; sampleOffset: (dx: number, dy: number) => RGB },
+): RGB {
+  const { sharpen: _sharpen, smooth: _smooth, blur, bloom, vignette, clarity, ...rest } = adjust;
+  let spatial: RGB = input;
+  const radius = Math.max(
+    blur,
+    bloom > 0 ? BLOOM_RADIUS_PX : 0,
+    clarity !== 0 ? CLARITY_RADIUS_PX : 0,
+  );
+  let average: RGB = input;
+  let glow: RGB = [0, 0, 0];
+  if (context && radius > 0) {
+    const sum = [0, 0, 0];
+    const bright = [0, 0, 0];
+    for (const y of [-1, 0, 1]) {
+      for (const x of [-1, 0, 1]) {
+        const sampled = context.sampleOffset(x * radius, y * radius);
+        for (let channel = 0; channel < 3; channel += 1) {
+          const value = sampled[channel]!;
+          sum[channel] = sum[channel]! + value;
+          bright[channel] =
+            bright[channel]! + Math.max(0, value - BLOOM_THRESHOLD) / (1 - BLOOM_THRESHOLD);
+        }
+      }
+    }
+    average = [sum[0]! / 9, sum[1]! / 9, sum[2]! / 9];
+    glow = [bright[0]! / 9, bright[1]! / 9, bright[2]! / 9];
+  }
+  if (blur > 0 && context) spatial = average;
+  if (clarity !== 0 && context) {
+    const strength = clarity / 100;
+    spatial = spatial.map((value, channel) =>
+      clamp01(value + (input[channel]! - average[channel]!) * strength),
+    ) as unknown as RGB;
+  }
+  if (bloom > 0 && context) {
+    const strength = (bloom / 100) * 0.5;
+    spatial = spatial.map((value, channel) =>
+      clamp01(value + glow[channel]! * strength),
+    ) as unknown as RGB;
+  }
+  let adjusted = applyAdjust(spatial, { ...rest, vibrance: 0 });
+  if (vignette > 0 && context) {
+    const px = (context.uv.x - 0.5) * 2;
+    const py = (context.uv.y - 0.5) * 2;
+    const distance = (px * px + py * py) / 2;
+    const shade = 1 - (vignette / 100) * 0.65 * smoothstep(0.2, 1, distance);
+    adjusted = adjusted.map((value) => clamp01(value * shade)) as unknown as RGB;
+  }
+  return adjusted;
 }
 
 /**
  * レシピ全体を 1 画素に適用する参照実装: 全体の補正 → 部分補正を順に。
  * uv は幾何を掛ける前の画像の正規化座標
  */
-export function applyRecipeAt(input: RGB, uv: Point, recipe: EditRecipe, size: Size): RGB {
-  let rgb = applyAdjust(input, recipe.adjust);
+export function applyRecipeAt(
+  input: RGB | ImageSampler,
+  uv: Point,
+  recipe: EditRecipe,
+  size: Size,
+): RGB {
+  const source: ImageSampler = typeof input === "function" ? input : () => input;
+  let stage: ImageSampler = (point) => applyAdjust(source(point), recipe.adjust);
   for (const local of recipe.localAdjustments) {
     if (!local.visible) continue;
-    const mask = maskValue(uv, local.mask, size);
-    const m = mask * (local.amount / 100);
-    if (m <= 0) continue;
-    const adjusted = applyLocalAdjust(rgb, local.adjust);
-    rgb = [mix(rgb[0], adjusted[0], m), mix(rgb[1], adjusted[1], m), mix(rgb[2], adjusted[2], m)];
+    const previous = stage;
+    stage = (point) => {
+      const rgb = previous(point);
+      const mask = maskValue(point, local.mask, size);
+      const m = mask * (local.amount / 100);
+      if (m <= 0) return rgb;
+      const adjusted = applyLocalAdjust(rgb, local.adjust, {
+        uv: point,
+        sampleOffset: (dx, dy) =>
+          previous({
+            x: clamp01(point.x + dx / size.width),
+            y: clamp01(point.y + dy / size.height),
+          }),
+      });
+      return [
+        mix(rgb[0], adjusted[0], m),
+        mix(rgb[1], adjusted[1], m),
+        mix(rgb[2], adjusted[2], m),
+      ];
+    };
   }
-  return rgb;
+  return stage(uv);
 }
