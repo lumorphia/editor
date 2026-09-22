@@ -5,7 +5,7 @@ import {
   DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
   editRecipeSchema,
-  localAdjustSchemaV2,
+  localAdjustSchemaV4,
   type EditRecipe,
   type LocalAdjustment,
 } from "./schema.ts";
@@ -77,13 +77,24 @@ describe("PORTRAIT_PRESETS", () => {
       for (const role of PORTRAIT_ROLES) {
         const r = preset.roles[role];
         expect(
-          localAdjustSchemaV2.safeParse({ ...DEFAULT_LOCAL_ADJUST, ...r.adjust }).success,
+          localAdjustSchemaV4.safeParse({ ...DEFAULT_LOCAL_ADJUST, ...r.adjust }).success,
         ).toBe(true);
         expect(r.amount).toBeGreaterThanOrEqual(0);
         expect(r.amount).toBeLessThanOrEqual(100);
       }
     }
     expect(findPortraitPreset("nope")).toBeUndefined();
+  });
+
+  it("uses at least one v4 effect in every portrait preset", () => {
+    const keys = ["blur", "bloom", "vignette", "clarity"] as const;
+    for (const preset of PORTRAIT_PRESETS) {
+      expect(
+        PORTRAIT_ROLES.some((role) =>
+          keys.some((key) => preset.roles[role].adjust[key] !== undefined),
+        ),
+      ).toBe(true);
+    }
   });
 });
 

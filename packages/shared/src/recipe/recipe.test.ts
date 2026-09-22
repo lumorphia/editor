@@ -3,13 +3,17 @@ import {
   BITMAP_MAX_EDGE,
   DEFAULT_ELLIPSE_MASK,
   DEFAULT_LOCAL_ADJUST,
+  DEFAULT_LOCAL_ADJUST_V2,
   DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
+  CURRENT_RECIPE_VERSION,
   MAX_LOCAL_ADJUSTMENTS,
   MAX_POLYGON_POINTS,
   editRecipeInputSchema,
   editRecipeSchema,
   editRecipeSchemaV2,
+  editRecipeSchemaV3,
+  localAdjustSchemaV4,
   localAdjustmentSchema,
 } from "./schema.ts";
 import { encodeRle } from "./rle.ts";
@@ -41,6 +45,91 @@ describe("migrateRecipe", () => {
   it("throws on input without version", () => {
     expect(() => migrateRecipe({})).toThrow(RecipeMigrationError);
     expect(() => migrateRecipe(null)).toThrow(RecipeMigrationError);
+  });
+});
+
+describe("editRecipeSchema v4 (#184 人物補正の追加効果)", () => {
+  const v3 = {
+    version: 3,
+    presetId: null,
+    adjust: DEFAULT_RECIPE.adjust,
+    geometry: DEFAULT_RECIPE.geometry,
+    localAdjustments: [
+      {
+        id: "background",
+        name: null,
+        presetId: null,
+        groupId: "portrait",
+        mask: DEFAULT_ELLIPSE_MASK,
+        adjust: {
+          exposure: 0,
+          contrast: 0,
+          highlights: 0,
+          shadows: 0,
+          temperature: 0,
+          tint: 0,
+          saturation: 0,
+          sharpen: 0,
+          smooth: 0,
+        },
+        amount: 100,
+        visible: true,
+      },
+    ],
+  } as const;
+
+  it("uses version 4 for new recipes and accepts the four additional local effects", () => {
+    expect(CURRENT_RECIPE_VERSION).toBe(4);
+    expect(DEFAULT_RECIPE.version).toBe(4);
+    expect(
+      localAdjustSchemaV4.safeParse({
+        ...DEFAULT_LOCAL_ADJUST,
+        blur: 12,
+        bloom: 30,
+        vignette: 20,
+        clarity: -25,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("migrates v3 by adding neutral values without changing existing adjustments", () => {
+    const out = migrateRecipe(v3);
+    expect(out.version).toBe(4);
+    expect(out.localAdjustments[0]!.adjust).toEqual({
+      ...v3.localAdjustments[0]!.adjust,
+      blur: 0,
+      bloom: 0,
+      vignette: 0,
+      clarity: 0,
+    });
+  });
+
+  it("rejects v4 effects on a recipe labelled as v3", () => {
+    const leaked = {
+      ...v3,
+      localAdjustments: [
+        {
+          ...v3.localAdjustments[0],
+          adjust: { ...v3.localAdjustments[0]!.adjust, blur: 10 },
+        },
+      ],
+    };
+    expect(() => migrateRecipe(leaked)).toThrow(RecipeMigrationError);
+  });
+
+  it("rejects additional effects outside their ranges", () => {
+    expect(localAdjustSchemaV4.safeParse({ ...DEFAULT_LOCAL_ADJUST, blur: 33 }).success).toBe(
+      false,
+    );
+    expect(localAdjustSchemaV4.safeParse({ ...DEFAULT_LOCAL_ADJUST, bloom: 101 }).success).toBe(
+      false,
+    );
+    expect(localAdjustSchemaV4.safeParse({ ...DEFAULT_LOCAL_ADJUST, vignette: 101 }).success).toBe(
+      false,
+    );
+    expect(localAdjustSchemaV4.safeParse({ ...DEFAULT_LOCAL_ADJUST, clarity: -101 }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -87,7 +176,7 @@ describe("editRecipeSchema v2 (#109 部分補正)", () => {
       feather: 0.3,
       invert: false,
     },
-    adjust: { ...DEFAULT_LOCAL_ADJUST, exposure: 0.3, sharpen: 30 },
+    adjust: { ...DEFAULT_LOCAL_ADJUST_V2, exposure: 0.3, sharpen: 30 },
     amount: 100,
     visible: true,
   } as const;
@@ -164,7 +253,7 @@ describe("editRecipeSchema v3 (#176 自動選択のマスク)", () => {
     name: null,
     presetId: "skin",
     groupId: null,
-    adjust: DEFAULT_LOCAL_ADJUST,
+    adjust: DEFAULT_LOCAL_ADJUST_V2,
     amount: 100,
     visible: true,
   } as const;
@@ -177,10 +266,16 @@ describe("editRecipeSchema v3 (#176 自動選択のマスク)", () => {
     feather: 0,
     invert: false,
   } as const;
-  const v3 = (local: unknown[]) => ({ ...DEFAULT_RECIPE, localAdjustments: local });
+  const v3 = (local: unknown[]) => ({
+    version: 3,
+    presetId: DEFAULT_RECIPE.presetId,
+    adjust: DEFAULT_RECIPE.adjust,
+    geometry: DEFAULT_RECIPE.geometry,
+    localAdjustments: local,
+  });
 
-  it("the default recipe is version 3 with no local adjustments", () => {
-    expect(DEFAULT_RECIPE.version).toBe(3);
+  it("the current recipe keeps v3 masks and starts with no local adjustments", () => {
+    expect(DEFAULT_RECIPE.version).toBe(4);
     expect(DEFAULT_RECIPE.localAdjustments).toEqual([]);
     expect(editRecipeSchema.parse(DEFAULT_RECIPE)).toEqual(DEFAULT_RECIPE);
   });
@@ -191,26 +286,26 @@ describe("editRecipeSchema v3 (#176 自動選択のマスク)", () => {
       { ...base, id: "gear", presetId: "gear", mask: bitmapMask },
       { ...base, id: "eye", presetId: "eyes", mask: DEFAULT_ELLIPSE_MASK },
     ];
-    expect(editRecipeSchema.safeParse(v3(list)).success).toBe(true);
+    expect(editRecipeSchemaV3.safeParse(v3(list)).success).toBe(true);
   });
 
   it("allows up to 12 local adjustments (人物補正 1 人で 5 件使う)", () => {
     expect(MAX_LOCAL_ADJUSTMENTS).toBe(12);
     const many = (n: number) =>
       Array.from({ length: n }, (_, i) => ({ ...base, id: `m${i}`, mask: DEFAULT_ELLIPSE_MASK }));
-    expect(editRecipeSchema.safeParse(v3(many(12))).success).toBe(true);
-    expect(editRecipeSchema.safeParse(v3(many(13))).success).toBe(false);
+    expect(editRecipeSchemaV3.safeParse(v3(many(12))).success).toBe(true);
+    expect(editRecipeSchemaV3.safeParse(v3(many(13))).success).toBe(false);
   });
 
   it("rejects a polygon ring with fewer than 3 points or more than the limit", () => {
     const two = { ...polygonMask, rings: [polygonMask.rings[0].slice(0, 2)] };
-    expect(editRecipeSchema.safeParse(v3([{ ...base, mask: two }])).success).toBe(false);
+    expect(editRecipeSchemaV3.safeParse(v3([{ ...base, mask: two }])).success).toBe(false);
     const ring = Array.from({ length: MAX_POLYGON_POINTS + 1 }, (_, i) => ({
       x: (i % 100) / 100,
       y: 0.5,
     }));
     expect(
-      editRecipeSchema.safeParse(v3([{ ...base, mask: { ...polygonMask, rings: [ring] } }]))
+      editRecipeSchemaV3.safeParse(v3([{ ...base, mask: { ...polygonMask, rings: [ring] } }]))
         .success,
     ).toBe(false);
   });
@@ -222,17 +317,17 @@ describe("editRecipeSchema v3 (#176 自動選択のマスク)", () => {
       height: 1,
       rle: encodeRle(new Uint8Array(BITMAP_MAX_EDGE + 1)),
     };
-    expect(editRecipeSchema.safeParse(v3([{ ...base, mask: big }])).success).toBe(false);
+    expect(editRecipeSchemaV3.safeParse(v3([{ ...base, mask: big }])).success).toBe(false);
     const short = { ...bitmapMask, rle: encodeRle(Uint8Array.from([1, 1, 1])) };
-    expect(editRecipeSchema.safeParse(v3([{ ...base, mask: short }])).success).toBe(false);
+    expect(editRecipeSchemaV3.safeParse(v3([{ ...base, mask: short }])).success).toBe(false);
   });
 
   it("carries a groupId so a portrait's adjustments can be handled together", () => {
     const grouped = { ...base, groupId: "p1", mask: polygonMask };
-    expect(editRecipeSchema.safeParse(v3([grouped])).success).toBe(true);
-    expect(editRecipeSchema.safeParse(v3([{ ...grouped, groupId: "x".repeat(33) }])).success).toBe(
-      false,
-    );
+    expect(editRecipeSchemaV3.safeParse(v3([grouped])).success).toBe(true);
+    expect(
+      editRecipeSchemaV3.safeParse(v3([{ ...grouped, groupId: "x".repeat(33) }])).success,
+    ).toBe(false);
   });
 });
 
@@ -248,27 +343,37 @@ describe("migrateRecipe v2 -> v3", () => {
         name: null,
         presetId: "eyes",
         mask: DEFAULT_ELLIPSE_MASK,
-        adjust: DEFAULT_LOCAL_ADJUST,
+        adjust: DEFAULT_LOCAL_ADJUST_V2,
         amount: 80,
         visible: true,
       },
     ],
   };
 
-  it("adds groupId: null to each local adjustment and bumps the version", () => {
+  it("adds groupId and neutral v4 effects to each local adjustment", () => {
     const out = migrateRecipe(v2);
-    expect(out.version).toBe(3);
-    expect(out.localAdjustments[0]).toEqual({ ...v2.localAdjustments[0], groupId: null });
+    expect(out.version).toBe(4);
+    expect(out.localAdjustments[0]).toEqual({
+      ...v2.localAdjustments[0],
+      groupId: null,
+      adjust: {
+        ...v2.localAdjustments[0]!.adjust,
+        blur: 0,
+        bloom: 0,
+        vignette: 0,
+        clarity: 0,
+      },
+    });
   });
 
-  it("migrates v1 all the way to v3", () => {
+  it("migrates v1 all the way to v4", () => {
     const v1 = {
       version: 1,
       presetId: null,
       adjust: DEFAULT_RECIPE.adjust,
       geometry: DEFAULT_RECIPE.geometry,
     };
-    expect(migrateRecipe(v1)).toEqual({ ...v1, version: 3, localAdjustments: [] });
+    expect(migrateRecipe(v1)).toEqual({ ...v1, version: 4, localAdjustments: [] });
   });
 
   it("rejects a v2 recipe that already carries groupId", () => {
@@ -276,10 +381,10 @@ describe("migrateRecipe v2 -> v3", () => {
     expect(() => migrateRecipe(leaked)).toThrow(RecipeMigrationError);
   });
 
-  it("accepts v1, v2 and v3 through editRecipeInputSchema (API の入出力)", () => {
+  it("accepts v1 through v4 through editRecipeInputSchema (API の入出力)", () => {
     expect(editRecipeInputSchema.safeParse(v2).success).toBe(true);
     expect(editRecipeInputSchema.safeParse(DEFAULT_RECIPE).success).toBe(true);
-    expect(editRecipeInputSchema.safeParse({ ...DEFAULT_RECIPE, version: 4 }).success).toBe(false);
+    expect(editRecipeInputSchema.safeParse({ ...DEFAULT_RECIPE, version: 5 }).success).toBe(false);
   });
 });
 
@@ -292,7 +397,7 @@ describe("migrateRecipe v1 -> v2", () => {
   };
 
   it("fills localAdjustments with an empty array (v2 の形) on the way to the current version", () => {
-    expect(migrateRecipe(v1)).toEqual({ ...v1, version: 3, localAdjustments: [] });
+    expect(migrateRecipe(v1)).toEqual({ ...v1, version: 4, localAdjustments: [] });
   });
 
   it("passes a valid current recipe through unchanged", () => {

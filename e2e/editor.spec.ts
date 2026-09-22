@@ -257,6 +257,61 @@ test.describe("editor", () => {
     expect(out.pixels[0]).not.toEqual(BLOCKS[1]);
   });
 
+  const sourceAt = ({ x }: { x: number; y: number }) =>
+    BLOCKS[Math.min(BLOCKS.length - 1, Math.floor(x * BLOCKS.length))]!.map(
+      (value) => value / 255,
+    ) as [number, number, number];
+  const spatialRecipe = (adjust: Partial<typeof DEFAULT_LOCAL_ADJUST>): EditRecipe => ({
+    ...DEFAULT_RECIPE,
+    localAdjustments: [
+      {
+        ...DEFAULT_LOCAL_ADJUSTMENT,
+        id: "spatial",
+        mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.5, cy: 0.5, rx: 1, ry: 1, feather: 0 },
+        adjust: { ...DEFAULT_LOCAL_ADJUST, ...adjust },
+      },
+    ],
+  });
+  const spatialCpu = (recipe: EditRecipe, point: { x: number; y: number }) =>
+    applyRecipeAt(sourceAt, { x: point.x / 200, y: point.y / 100 }, recipe, {
+      width: 200,
+      height: 100,
+    }).map((value) => Math.round(value * 255));
+
+  test("background blur matches the CPU reference at a colour boundary (#184)", async ({
+    page,
+  }) => {
+    await openEditorWithImage(page);
+    const recipe = spatialRecipe({ blur: 10 });
+    const point = { x: 95, y: 50 };
+    const out = await exportPixels(page, recipe, [point]);
+    expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
+  });
+
+  test("bloom adds blurred highlights like the CPU reference (#184)", async ({ page }) => {
+    await openEditorWithImage(page);
+    const recipe = spatialRecipe({ bloom: 100 });
+    const point = { x: 55, y: 50 };
+    const out = await exportPixels(page, recipe, [point]);
+    expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
+  });
+
+  test("vignette darkens the corner like the CPU reference (#184)", async ({ page }) => {
+    await openEditorWithImage(page);
+    const recipe = spatialRecipe({ vignette: 100 });
+    const point = { x: 5, y: 5 };
+    const out = await exportPixels(page, recipe, [point]);
+    expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
+  });
+
+  test("clarity raises local contrast like the CPU reference (#184)", async ({ page }) => {
+    await openEditorWithImage(page);
+    const recipe = spatialRecipe({ clarity: 100 });
+    const point = { x: 95, y: 50 };
+    const out = await exportPixels(page, recipe, [point]);
+    expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
+  });
+
   test("the brush tool paints and erases on the canvas, one history step per stroke (#109)", async ({
     page,
   }) => {
@@ -269,6 +324,10 @@ test.describe("editor", () => {
     await expect(page.getByTestId("brush-settings")).toBeVisible();
     await expect(page.getByTestId("brush-overlay")).toBeVisible();
     await expect(page.getByTestId("local-sliders").getByLabel("美肌")).toBeVisible();
+    await expect(page.getByTestId("local-sliders").getByLabel("背景ぼかし")).toBeVisible();
+    await expect(page.getByTestId("local-sliders").getByLabel("発光")).toBeVisible();
+    await expect(page.getByTestId("local-sliders").getByLabel("周辺減光")).toBeVisible();
+    await expect(page.getByTestId("local-sliders").getByLabel("質感")).toBeVisible();
 
     const host = await page.getByTestId("canvas-host").boundingBox();
     if (!host) throw new Error("no canvas");

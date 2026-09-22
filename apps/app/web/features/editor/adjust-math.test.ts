@@ -155,4 +155,74 @@ describe("applyRecipeAt (部分補正の CPU 参照、#109)", () => {
     );
     expect(applyRecipeAt(px, { x: 0.25, y: 0.5 }, recipe, size)).toEqual(px);
   });
+
+  it("blurs with a radius measured in source pixels", () => {
+    const recipe = {
+      ...DEFAULT_RECIPE,
+      localAdjustments: [
+        {
+          ...eye,
+          mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.5, cy: 0.5, rx: 1, ry: 1, feather: 0 },
+          adjust: { ...DEFAULT_LOCAL_ADJUST, blur: 10 },
+        },
+      ],
+    };
+    const source = ({ x }: { x: number; y: number }): RGB => (x < 0.5 ? [1, 1, 1] : [0, 0, 0]);
+    const out = applyRecipeAt(source, { x: 0.5, y: 0.5 }, recipe, size);
+    expect(out[0]).toBeGreaterThan(0);
+    expect(out[0]).toBeLessThan(1);
+  });
+
+  it("adds bloom from bright neighbouring pixels", () => {
+    const recipe = {
+      ...DEFAULT_RECIPE,
+      localAdjustments: [
+        {
+          ...eye,
+          mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.5, cy: 0.5, rx: 1, ry: 1, feather: 0 },
+          adjust: { ...DEFAULT_LOCAL_ADJUST, bloom: 100 },
+        },
+      ],
+    };
+    const source = ({ x }: { x: number; y: number }): RGB =>
+      x < 0.5 ? [1, 1, 1] : [0.1, 0.1, 0.1];
+    const out = applyRecipeAt(source, { x: 0.51, y: 0.5 }, recipe, size);
+    expect(out[0]).toBeGreaterThan(0.1);
+  });
+
+  it("darkens image corners with vignette while preserving the centre", () => {
+    const recipe = {
+      ...DEFAULT_RECIPE,
+      localAdjustments: [
+        {
+          ...eye,
+          mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.5, cy: 0.5, rx: 1, ry: 1, feather: 0 },
+          adjust: { ...DEFAULT_LOCAL_ADJUST, vignette: 100 },
+        },
+      ],
+    };
+    const centre = applyRecipeAt([0.7, 0.7, 0.7], { x: 0.5, y: 0.5 }, recipe, size);
+    const corner = applyRecipeAt([0.7, 0.7, 0.7], { x: 0, y: 0 }, recipe, size);
+    expect(centre[0]).toBeCloseTo(0.7);
+    expect(corner[0]).toBeLessThan(centre[0]);
+  });
+
+  it("increases or decreases local contrast with clarity", () => {
+    const source = ({ x }: { x: number; y: number }): RGB =>
+      x < 0.5 ? [0.8, 0.8, 0.8] : [0.4, 0.4, 0.4];
+    const withClarity = (clarity: number) => ({
+      ...DEFAULT_RECIPE,
+      localAdjustments: [
+        {
+          ...eye,
+          mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.5, cy: 0.5, rx: 1, ry: 1, feather: 0 },
+          adjust: { ...DEFAULT_LOCAL_ADJUST, clarity },
+        },
+      ],
+    });
+    const sharp = applyRecipeAt(source, { x: 0.49, y: 0.5 }, withClarity(100), size);
+    const soft = applyRecipeAt(source, { x: 0.49, y: 0.5 }, withClarity(-100), size);
+    expect(sharp[0]).toBeGreaterThan(0.8);
+    expect(soft[0]).toBeLessThan(0.8);
+  });
 });

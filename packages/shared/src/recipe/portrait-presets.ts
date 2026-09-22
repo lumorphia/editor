@@ -1,7 +1,7 @@
 import {
   DEFAULT_LOCAL_ADJUST,
   type EditRecipe,
-  type LocalAdjustV2,
+  type LocalAdjust,
   type LocalAdjustment,
 } from "./schema.ts";
 
@@ -18,7 +18,7 @@ export type PortraitRole = (typeof PORTRAIT_ROLES)[number];
 export const PORTRAIT_PRESET_IDS = ["natural", "bright", "dramatic", "soft", "eyes"] as const;
 export type PortraitPresetId = (typeof PORTRAIT_PRESET_IDS)[number];
 
-export type PortraitRoleSetting = { adjust: Partial<LocalAdjustV2>; amount: number };
+export type PortraitRoleSetting = { adjust: Partial<LocalAdjust>; amount: number };
 
 export type PortraitPreset = {
   id: PortraitPresetId;
@@ -32,16 +32,19 @@ const eyesLight: PortraitRoleSetting = {
   amount: 70,
 };
 
-// 数値は実画像で調整する。既存の 9 項目だけで組む (ぼかし・発光・周辺減光は別 Issue)
+// 数値は実画像で調整する。空間効果は背景・人物・顔の役に分け、1 パスに重い効果を重ねすぎない。
 export const PORTRAIT_PRESETS: readonly PortraitPreset[] = Object.freeze([
   {
     id: "natural",
     name: "ナチュラル",
     hint: "顔を少し明るく、美肌と瞳強調を弱く。背景はわずかに落とす",
     roles: {
-      background: { adjust: { exposure: -0.15, saturation: -10, contrast: -5 }, amount: 60 },
-      person: { adjust: { shadows: 15, contrast: 5, sharpen: 10 }, amount: 60 },
-      face: { adjust: { exposure: 0.15, temperature: 5, smooth: 25 }, amount: 80 },
+      background: {
+        adjust: { exposure: -0.15, saturation: -10, contrast: -5, blur: 3, vignette: 10 },
+        amount: 60,
+      },
+      person: { adjust: { shadows: 15, contrast: 5, sharpen: 10, clarity: 10 }, amount: 60 },
+      face: { adjust: { exposure: 0.15, temperature: 5, smooth: 25, bloom: 8 }, amount: 80 },
       eyes: eyesLight,
     },
   },
@@ -50,9 +53,9 @@ export const PORTRAIT_PRESETS: readonly PortraitPreset[] = Object.freeze([
     name: "明るく",
     hint: "顔と人物の露光・シャドウを持ち上げる",
     roles: {
-      background: { adjust: { exposure: -0.05 }, amount: 40 },
-      person: { adjust: { exposure: 0.2, shadows: 30 }, amount: 80 },
-      face: { adjust: { exposure: 0.35, shadows: 20, smooth: 20 }, amount: 90 },
+      background: { adjust: { exposure: -0.05, blur: 2, vignette: 5 }, amount: 40 },
+      person: { adjust: { exposure: 0.2, shadows: 30, clarity: 5 }, amount: 80 },
+      face: { adjust: { exposure: 0.35, shadows: 20, smooth: 20, bloom: 12 }, amount: 90 },
       eyes: eyesLight,
     },
   },
@@ -61,10 +64,13 @@ export const PORTRAIT_PRESETS: readonly PortraitPreset[] = Object.freeze([
     name: "ドラマチック",
     hint: "人物のコントラストを上げ、背景を暗く沈める",
     roles: {
-      background: { adjust: { exposure: -0.5, saturation: -25, contrast: -10 }, amount: 90 },
-      person: { adjust: { contrast: 20, shadows: -10, sharpen: 20 }, amount: 90 },
+      background: {
+        adjust: { exposure: -0.5, saturation: -25, contrast: -10, blur: 4, vignette: 30 },
+        amount: 90,
+      },
+      person: { adjust: { contrast: 20, shadows: -10, sharpen: 20, clarity: 35 }, amount: 90 },
       face: { adjust: { contrast: 10, smooth: 15 }, amount: 80 },
-      eyes: { adjust: { contrast: 20, sharpen: 40, saturation: 10 }, amount: 80 },
+      eyes: { adjust: { contrast: 20, sharpen: 40, saturation: 10, bloom: 5 }, amount: 80 },
     },
   },
   {
@@ -72,9 +78,15 @@ export const PORTRAIT_PRESETS: readonly PortraitPreset[] = Object.freeze([
     name: "やわらか",
     hint: "美肌を強めに、コントラストを抑えてやわらかく",
     roles: {
-      background: { adjust: { contrast: -20, saturation: -10 }, amount: 70 },
+      background: {
+        adjust: { contrast: -20, saturation: -10, blur: 6, vignette: 15 },
+        amount: 70,
+      },
       person: { adjust: { contrast: -10, highlights: -10 }, amount: 60 },
-      face: { adjust: { smooth: 45, exposure: 0.1, temperature: 8 }, amount: 90 },
+      face: {
+        adjust: { smooth: 45, exposure: 0.1, temperature: 8, bloom: 20, clarity: -20 },
+        amount: 90,
+      },
       eyes: { adjust: { exposure: 0.2, sharpen: 10 }, amount: 50 },
     },
   },
@@ -83,10 +95,13 @@ export const PORTRAIT_PRESETS: readonly PortraitPreset[] = Object.freeze([
     name: "瞳くっきり",
     hint: "両目の露光・彩度・シャープを中心に。他は控えめ",
     roles: {
-      background: { adjust: { exposure: -0.1 }, amount: 40 },
-      person: { adjust: { sharpen: 10 }, amount: 40 },
+      background: { adjust: { exposure: -0.1, blur: 2, vignette: 10 }, amount: 40 },
+      person: { adjust: { sharpen: 10, clarity: 15 }, amount: 40 },
       face: { adjust: { smooth: 10 }, amount: 40 },
-      eyes: { adjust: { exposure: 0.4, saturation: 25, contrast: 20, sharpen: 50 }, amount: 100 },
+      eyes: {
+        adjust: { exposure: 0.4, saturation: 25, contrast: 20, sharpen: 50, bloom: 8, clarity: 20 },
+        amount: 100,
+      },
     },
   },
 ]);

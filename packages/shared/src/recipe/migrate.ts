@@ -3,14 +3,18 @@ import {
   editRecipeSchemaV1,
   editRecipeSchemaV2,
   editRecipeSchemaV3,
+  editRecipeSchemaV4,
+  localAdjustSchemaV4,
   localAdjustmentSchemaV2,
   localAdjustmentSchemaV3,
+  localAdjustmentSchemaV4,
   MAX_LOCAL_ADJUSTMENTS,
   MAX_LOCAL_ADJUSTMENTS_V2,
   type EditRecipe,
   type EditRecipeV1,
   type EditRecipeV2,
   type EditRecipeV3,
+  type EditRecipeV4,
 } from "./schema.ts";
 
 export class RecipeMigrationError extends Error {
@@ -22,10 +26,25 @@ const versioned = z.object({ version: z.number().int() });
 // strict は object にしか付かないので、部分補正とマスクの中まで strict にした版を組み立てる。
 // v2 に groupId が混ざっていれば拒む (version の書き間違いを通さない)
 const strictV2 = editRecipeSchemaV2.strict().extend({
-  localAdjustments: localAdjustmentSchemaV2.strict().array().max(MAX_LOCAL_ADJUSTMENTS_V2),
+  localAdjustments: localAdjustmentSchemaV2
+    .strict()
+    .extend({ adjust: localAdjustmentSchemaV2.shape.adjust.strict() })
+    .array()
+    .max(MAX_LOCAL_ADJUSTMENTS_V2),
 });
 const strictV3 = editRecipeSchemaV3.strict().extend({
-  localAdjustments: localAdjustmentSchemaV3.strict().array().max(MAX_LOCAL_ADJUSTMENTS),
+  localAdjustments: localAdjustmentSchemaV3
+    .strict()
+    .extend({ adjust: localAdjustmentSchemaV3.shape.adjust.strict() })
+    .array()
+    .max(MAX_LOCAL_ADJUSTMENTS),
+});
+const strictV4 = editRecipeSchemaV4.strict().extend({
+  localAdjustments: localAdjustmentSchemaV4
+    .strict()
+    .extend({ adjust: localAdjustSchemaV4.strict() })
+    .array()
+    .max(MAX_LOCAL_ADJUSTMENTS),
 });
 
 /** v1 -> v2: 部分補正を空で足す (#109) */
@@ -39,6 +58,24 @@ export function migrateV2toV3(v2: EditRecipeV2): EditRecipeV3 {
     ...v2,
     version: 3,
     localAdjustments: v2.localAdjustments.map((l) => ({ ...l, groupId: null })),
+  };
+}
+
+/** v3 -> v4: 人物補正の追加効果を中立値で足す (#184) */
+export function migrateV3toV4(v3: EditRecipeV3): EditRecipeV4 {
+  return {
+    ...v3,
+    version: 4,
+    localAdjustments: v3.localAdjustments.map((local) => ({
+      ...local,
+      adjust: {
+        ...local.adjust,
+        blur: 0,
+        bloom: 0,
+        vignette: 0,
+        clarity: 0,
+      },
+    })),
   };
 }
 
@@ -65,11 +102,15 @@ export function migrateRecipe(input: unknown): EditRecipe {
   }
   switch (head.data.version) {
     case 1:
-      return migrateV2toV3(migrateV1toV2(parseOrThrow(editRecipeSchemaV1.strict(), input, "v1")));
+      return migrateV3toV4(
+        migrateV2toV3(migrateV1toV2(parseOrThrow(editRecipeSchemaV1.strict(), input, "v1"))),
+      );
     case 2:
-      return migrateV2toV3(parseOrThrow(strictV2, input, "v2"));
+      return migrateV3toV4(migrateV2toV3(parseOrThrow(strictV2, input, "v2")));
     case 3:
-      return parseOrThrow(strictV3, input, "v3");
+      return migrateV3toV4(parseOrThrow(strictV3, input, "v3"));
+    case 4:
+      return parseOrThrow(strictV4, input, "v4");
     default:
       throw new RecipeMigrationError(`unsupported recipe version: ${head.data.version}`);
   }
