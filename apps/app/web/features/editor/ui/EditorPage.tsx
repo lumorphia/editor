@@ -45,7 +45,8 @@ const ERROR_TEXT: Record<string, string> = {
   webgl: "このブラウザでは編集機能を使えません (WebGL が無効です)。",
 };
 
-const tabBtn = "px-3 py-1.5 text-sm border-b-2 border-transparent aria-selected:border-accent";
+const tabBtn =
+  "shrink-0 whitespace-nowrap px-2 py-1.5 text-sm border-b-2 border-transparent aria-selected:border-accent";
 const toolBtn =
   "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
@@ -777,7 +778,7 @@ export function EditorPage() {
       </section>
 
       <aside className="w-full shrink-0 space-y-3 lg:w-80">
-        <div role="tablist" className="flex border-b border-line-soft">
+        <div role="tablist" className="flex overflow-x-auto border-b border-line-soft">
           {(
             [
               ["presets", t("プリセット", "Presets")],
