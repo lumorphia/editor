@@ -264,7 +264,27 @@ export function LocalPanel(p: Props) {
             </button>
           ))}
         </div>
-        {p.onAuto && !selected && (
+        {p.onAuto && selected && (
+          <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="local-auto-presets">
+            <span className="text-xs text-ink-muted">
+              {t("自動選択で追加:", "Add with auto selection:")}
+            </span>
+            {LOCAL_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={btn}
+                title={tx(preset.hint)}
+                disabled={full || busy}
+                onClick={() => p.onAuto?.(preset.id)}
+                data-testid={`local-auto-${preset.id}`}
+              >
+                {t(`${preset.name}を追加`, `Add ${tx(preset.name)}`)}
+              </button>
+            ))}
+          </div>
+        )}
+        {p.onAuto && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs text-ink-muted">
               {t("タップで範囲だけ選ぶ:", "Select an area by tapping:")}
