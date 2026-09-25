@@ -156,6 +156,8 @@ export type PostFormFields = {
   /** コメントを受け付けるか (#143)。古い下書きには無い */
   commentsEnabled?: boolean;
   equipment: unknown[];
+  /** フェイスアクセサリー (#222)。FacewearSummary ごと保存する。古い下書きには無い */
+  facewear?: unknown;
   profile: { job: string | null; race: string | null; clan: string | null; gender: string | null };
 };
 
