@@ -155,6 +155,8 @@ export type PostFormFields = {
   itemsVisibility: "public" | "private";
   /** コメントを受け付けるか (#143)。古い下書きには無い */
   commentsEnabled?: boolean;
+  /** 投稿者を非公開で投稿するか (#235)。古い下書きには無い */
+  authorHidden?: boolean;
   equipment: unknown[];
   /** フェイスアクセサリー (#222)。FacewearSummary ごと保存する。古い下書きには無い */
   facewear?: unknown;
