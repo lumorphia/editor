@@ -11,7 +11,7 @@ import {
   type EditRecipe,
 } from "@prismtone/shared/recipe";
 import { applyAdjust, applyRecipeAt } from "../apps/app/web/features/editor/adjust-math.ts";
-import { login } from "./helpers.ts";
+import { devLogin } from "./api.ts";
 
 // 4 色のブロックからなるテスト画像 (200x100)。左から赤・緑・青・灰
 const BLOCKS: [number, number, number][] = [
@@ -82,6 +82,9 @@ function expectClose(actual: number[], expected: number[], tolerance: number) {
     ).toBeLessThanOrEqual(tolerance),
   );
 }
+
+// 各テストは /edit を開き直し、状態を共有しないので、ファイルの中でも並べて走らせる (#277)
+test.describe.configure({ mode: "parallel" });
 
 test.describe("editor", () => {
   test("default recipe exports the source pixels unchanged", async ({ page }) => {
@@ -392,8 +395,8 @@ test.describe("editor", () => {
   test("the local panel adds an ellipse, drags it, undoes, hides, and survives a redo of the export (#109)", async ({
     page,
   }) => {
-    // 「投稿へ」から戻ってくる導線を使うのでログインしておく
-    await login(page, "/edit");
+    // 「投稿へ」から戻ってくる導線を使うのでログインしておく (MiAuth の共有の利用者は使わない。並列で走るため)
+    await devLogin(page, "editor_tester");
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
     // 手動の流れ: 円形を足してから瞳強調のプリセットを当てる (何も選んでいないときの「瞳強調」は顔の自動選択、#176)
