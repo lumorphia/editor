@@ -12,6 +12,7 @@ import {
 } from "@prismtone/shared/recipe";
 import { applyAdjust, applyRecipeAt } from "../apps/app/web/features/editor/adjust-math.ts";
 import { devLogin } from "./api.ts";
+import { continueToPostForm } from "./helpers.ts";
 
 // 4 色のブロックからなるテスト画像 (200x100)。左から赤・緑・青・灰
 const BLOCKS: [number, number, number][] = [
@@ -449,8 +450,7 @@ test.describe("editor", () => {
     await expect(page.getByTestId("local-list")).toContainText("非表示");
 
     // 投稿へ → 現像をやり直す で戻っても部分補正が残っている (下書きの復元、v2 のレシピ)
-    await page.getByRole("button", { name: "投稿へ" }).click();
-    await page.waitForURL("**/edit/post");
+    await continueToPostForm(page);
     await page.getByTestId("pending-image-redo-0").click();
     await page.waitForURL(/\/edit(\?|$)/);
     await page.getByRole("tab", { name: "部分補正" }).click();
