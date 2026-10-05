@@ -789,6 +789,9 @@ test.describe("editor", () => {
   test("瞳強調の選択中でも美肌を自動選択で追加でき、範囲をブラシで直せる (#176, #210)", async ({
     page,
   }) => {
+    // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
+    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    test.setTimeout(180_000);
     await page.addInitScript(() => {
       (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
     });
@@ -837,6 +840,9 @@ test.describe("editor", () => {
   test("when no face is found the panel says so and manual masks still work (#176)", async ({
     page,
   }) => {
+    // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
+    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    test.setTimeout(180_000);
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
     await page.getByRole("button", { name: "美肌", exact: true }).click();
@@ -992,6 +998,9 @@ test.describe("editor", () => {
   test("人物補正 says so when no face is found and points to the manual tools (#175)", async ({
     page,
   }) => {
+    // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
+    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    test.setTimeout(180_000);
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "人物補正" }).click();
     await page.getByTestId("portrait-detect").click();
