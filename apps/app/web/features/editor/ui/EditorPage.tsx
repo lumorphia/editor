@@ -5,6 +5,7 @@ import { activePortraitGroup, editorReducer, initialEditorState } from "../state
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
 import { addPendingExport, loadDraft, saveDraft } from "../drafts.ts";
+import { sendEditorEvent } from "../usage.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
 import { AdjustPanel } from "./AdjustPanel.tsx";
@@ -93,6 +94,13 @@ export function EditorPage() {
   const rendererRef = useRef<EditorRenderer | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, width: 1, height: 1, scale: 1 });
+  // 編集画面の使われ方 (#344)。開いたことを 1 回だけ送る (StrictMode の 2 回目の effect では送らない)
+  const openReported = useRef(false);
+  useEffect(() => {
+    if (openReported.current) return;
+    openReported.current = true;
+    sendEditorEvent("open");
+  }, []);
   const [ready, setReady] = useState(false);
 
   const recipe = state.history.present;
@@ -454,6 +462,7 @@ export function EditorPage() {
       a.download = `${base}-prismtone.${ext}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      sendEditorEvent("save");
     } catch {
       dispatch({ type: "ui/error", error: t("書き出しに失敗しました。", "Export failed.") });
     }
@@ -464,6 +473,7 @@ export function EditorPage() {
     try {
       const blob = await exportBlob(recipe);
       await addPendingExport({ draftId: state.draftId, blob, recipe, createdAt: Date.now() });
+      sendEditorEvent("to_post");
       void navigate("/edit/post");
     } catch (error) {
       dispatch({
