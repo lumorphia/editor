@@ -1,7 +1,7 @@
 import type { GeometryV1 } from "@lumorphia/editor-recipe";
-import type { FaceResult } from "../inference/face-masks.ts";
-import { imageUvToCanvas } from "../mask-math.ts";
-import type { Size } from "../render/geometry.ts";
+import type { FaceResult } from "@lumorphia/editor-engine";
+import { imageUvToCanvas } from "@lumorphia/editor-engine";
+import type { Size } from "@lumorphia/editor-engine";
 
 type View = { x: number; y: number; width: number; height: number; scale: number };
 

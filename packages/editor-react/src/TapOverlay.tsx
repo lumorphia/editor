@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { GeometryV1 } from "@lumorphia/editor-recipe";
-import { canvasToImageUv, type Point } from "../mask-math.ts";
-import type { Size } from "../render/geometry.ts";
+import { canvasToImageUv, type Point } from "@lumorphia/editor-engine";
+import type { Size } from "@lumorphia/editor-engine";
 import { useEditorI18n } from "./EditorI18n.tsx";
 
 type View = { x: number; y: number; width: number; height: number; scale: number };

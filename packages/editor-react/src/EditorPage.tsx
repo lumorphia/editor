@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@lumorphia/editor-recipe";
-import { activePortraitGroup, editorReducer, initialEditorState } from "../state.ts";
-import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
-import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
-import { downloadName, type EditorDestination, type EditorHost } from "../host.ts";
-import { DEFAULT_MODEL_BASE_URL } from "../inference/model-paths.ts";
-import { aspectRatio, centeredCrop } from "../render/geometry.ts";
-import type { EditorRenderer } from "../render/editor-renderer.ts";
+import { activePortraitGroup, editorReducer, initialEditorState } from "@lumorphia/editor-engine";
+import { canRedo, canUndo, redoLabel, undoLabel } from "@lumorphia/editor-engine";
+import { ImageLoadError, loadImageFile, type LoadedImage } from "@lumorphia/editor-engine";
+import { downloadName, type EditorDestination, type EditorHost } from "./host.ts";
+import { DEFAULT_MODEL_BASE_URL } from "@lumorphia/editor-engine";
+import { aspectRatio, centeredCrop } from "@lumorphia/editor-engine";
+import type { EditorRenderer } from "@lumorphia/editor-engine/render";
 import { AdjustPanel } from "./AdjustPanel.tsx";
 import { PresetPanel } from "./PresetPanel.tsx";
 import { GeometryPanel } from "./GeometryPanel.tsx";
-import { ZOOM_STEP } from "../render/viewport.ts";
+import { ZOOM_STEP } from "@lumorphia/editor-engine";
 import { useCanvasGestures } from "./use-canvas-gestures.ts";
 import { CropOverlay } from "./CropOverlay.tsx";
 import { EllipseMaskOverlay } from "./EllipseMaskOverlay.tsx";
@@ -21,14 +21,14 @@ import {
   planFaceSelection,
   planSegmentSelection,
   type SegmentSelectionKind,
-} from "../inference/auto-select.ts";
-import type { FaceResult } from "../inference/face-masks.ts";
-import { SAM_LEVELS } from "../inference/segment-masks.ts";
+} from "@lumorphia/editor-engine";
+import type { FaceResult } from "@lumorphia/editor-engine";
+import { SAM_LEVELS } from "@lumorphia/editor-engine";
 import { TapOverlay } from "./TapOverlay.tsx";
-import type { Point } from "../mask-math.ts";
+import type { Point } from "@lumorphia/editor-engine";
 import { PortraitPanel } from "./PortraitPanel.tsx";
 import { FaceBoxesOverlay } from "./FaceBoxesOverlay.tsx";
-import { PORTRAIT_FULL, buildPortraitItems, faceCenter } from "../inference/portrait.ts";
+import { PORTRAIT_FULL, buildPortraitItems, faceCenter } from "@lumorphia/editor-engine";
 import {
   MAX_LOCAL_ADJUSTMENTS,
   findPortraitPreset,
@@ -125,7 +125,7 @@ function EditorPage({ host }: { host: EditorHost }) {
       const container = hostRef.current;
       if (!container) return;
       try {
-        const { EditorRenderer } = await import("../render/editor-renderer.ts");
+        const { EditorRenderer } = await import("@lumorphia/editor-engine/render");
         renderer = await EditorRenderer.create(container);
         if (disposed) {
           renderer.destroy();
@@ -210,7 +210,7 @@ function EditorPage({ host }: { host: EditorHost }) {
     if (facesRef.current?.draftId === draftId) return facesRef.current.faces;
     dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
     try {
-      const { detectFaces } = await import("../inference/face.ts");
+      const { detectFaces } = await import("@lumorphia/editor-engine/inference/face");
       const faces = await detectFaces(source.bitmap, {
         modelBaseUrl,
         onProgress: (progress) =>
@@ -229,7 +229,7 @@ function EditorPage({ host }: { host: EditorHost }) {
   const prepareSegmenterOnce = async (source: LoadedImage): Promise<boolean> => {
     dispatch({ type: "ui/inference", inference: { status: "loading", progress: null } });
     try {
-      const { prepareSegmenter } = await import("../inference/segment.ts");
+      const { prepareSegmenter } = await import("@lumorphia/editor-engine/inference/segment");
       await prepareSegmenter(source.bitmap, {
         modelBaseUrl,
         onProgress: (progress) =>
@@ -280,7 +280,7 @@ function EditorPage({ host }: { host: EditorHost }) {
     }
     dispatch({ type: "ui/inference", inference: { status: "running", progress: null } });
     try {
-      const { segmentAt } = await import("../inference/segment.ts");
+      const { segmentAt } = await import("@lumorphia/editor-engine/inference/segment");
       const center = faceCenter(face);
       const { masks } = await segmentAt(center.x, center.y);
       const person = masks[0];
@@ -334,7 +334,7 @@ function EditorPage({ host }: { host: EditorHost }) {
     if (!kind) return;
     dispatch({ type: "ui/inference", inference: { status: "running", progress: null } });
     try {
-      const { segmentAt } = await import("../inference/segment.ts");
+      const { segmentAt } = await import("@lumorphia/editor-engine/inference/segment");
       const { masks } = await segmentAt(uv.x, uv.y);
       const plan = planSegmentSelection(kind, masks);
       dispatch({ type: "ui/inference", inference: { status: "idle", progress: null } });
