@@ -1,5 +1,18 @@
 # E2E
 
-prismtone から移した現像の E2E (`editor.spec.ts`: GPU と CPU の照合、マスク、推論。`perf-local-adjust.spec.ts`: 性能の計測)。
+単独アプリ (`apps/web`) に対して現像を確かめる。WebGL は headless Chromium の SwiftShader。
 
-今はまだ動かない。prismtone の土台 (`./test.ts` の CSP の見張り、`./helpers.ts`、`./api.ts` の `devLogin`、投稿画面への遷移) を前提にしているため。単独アプリ (`apps/web`) を E2E の土台にして、このリポジトリで回せるようにする (#3)。それまでは lint だけかかり、型検査 (tsconfig.json の include に無い) と実行はしない。
+- `editor.spec.ts`: lumorphia/prismtone から移した。確かめること:
+  - GPU の出力と CPU の参照 (`@lumorphia/editor-engine/reference`) の照合
+  - マスク
+  - ズームとピンチ、比較、保存
+  - 顔検出と切り抜き (MediaPipe、SlimSAM)、人物補正
+  - 下書きからの開き直し
+- `editor-styles.spec.ts`: UI のクラスがホストの CSS に入っていること (Tailwind の `@source`)
+- `perf-local-adjust.spec.ts`: 部分補正の数ごとの描画時間と書き出し時間。`PERF=1` のときだけ走る
+
+`test.ts` の `test` を使う。CSP の違反を全テストで見張り、終わりに 0 件であることを確かめる。
+
+```sh
+pnpm e2e   # パッケージと apps/web をビルドしてから回す
+```

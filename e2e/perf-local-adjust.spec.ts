@@ -11,7 +11,7 @@ import {
 } from "@lumorphia/editor-recipe";
 
 /**
- * 部分補正の性能計測 (#109、docs/spikes/2026-09-20-local-adjust-perf.md)。
+ * 部分補正の性能計測 (lumorphia/prismtone#109、docs/spikes/2026-09-20-local-adjust-perf.md)。
  * 通常の E2E では走らせない。PERF=1 pnpm exec playwright test e2e/perf-local-adjust.spec.ts --headed
  * headless (SwiftShader、CPU 描画) は上限の目安。実機の GPU では --headed で取る
  */
@@ -78,15 +78,15 @@ test("measure develop / export time and texture memory for 0 / 4 / 8 / 12 local 
 }) => {
   test.setTimeout(600_000);
   await page.addInitScript(() => {
-    (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+    (window as Window & { __LUMORPHIA_E2E__?: boolean }).__LUMORPHIA_E2E__ = true;
   });
-  await page.goto("/edit");
+  await page.goto("/");
   const png = await makeNoisePng(page, 4096, 2304);
   await page
     .getByTestId("file-input")
     .setInputFiles({ name: "4k.png", mimeType: "image/png", buffer: png });
   await page.waitForFunction(() =>
-    Boolean((window as Window & { __prismtoneEditor?: unknown }).__prismtoneEditor),
+    Boolean((window as Window & { __lumorphiaEditor?: unknown }).__lumorphiaEditor),
   );
   await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled({ timeout: 60_000 });
   const gpu = await page.evaluate(() => {
@@ -104,9 +104,9 @@ test("measure develop / export time and texture memory for 0 / 4 / 8 / 12 local 
       (recipe) =>
         (
           window as Window & {
-            __prismtoneEditor?: { benchmark: (r: EditRecipe, frames?: number) => Promise<unknown> };
+            __lumorphiaEditor?: { benchmark: (r: EditRecipe, frames?: number) => Promise<unknown> };
           }
-        ).__prismtoneEditor!.benchmark(recipe, 20),
+        ).__lumorphiaEditor!.benchmark(recipe, 20),
       recipe,
     );
     console.log(`locals=${n} ${JSON.stringify(r)}`);
