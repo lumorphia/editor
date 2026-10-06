@@ -5,7 +5,18 @@ packages:
 # 公開から 1 日経っていない版は入れない (pnpm 12 の既定の minimumReleaseAge。lumorphia/prismtone の ADR-0033 と同じ)。
 # ここで緩めない。手元で確かめるだけなら pnpm_config_minimum_release_age=0 を付ける
 
+# 依存の版の固定。脆弱性やバンドルの都合で、間接依存の版を上書きする (lumorphia/prismtone と同じ)
+overrides:
+  "@huggingface/transformers>sharp": ^0.35.5
+
 # 依存のビルドスクリプト (install / postinstall) を走らせるかを 1 つずつ決める。載っていないものは install が失敗する
 allowBuilds:
   # ネイティブのバイナリを置く。vite / vitest で使う
   esbuild: true
+  # transformers.js (切り抜き) の Node 向けの依存。ブラウザでは使わない
+  # CUDA のバイナリ (330 MB) を取りに行くだけ。CPU 用はパッケージに入っているので要らない
+  onnxruntime-node: false
+  # 同梱の CLI の版を確かめるだけ
+  protobufjs: false
+  # 画像のネイティブのバイナリ。transformers.js の Node 向けで、現像 (ブラウザ) では使わない
+  sharp: false

@@ -1,0 +1,441 @@
+import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_ELLIPSE_MASK,
+  DEFAULT_RECIPE,
+  MAX_LOCAL_ADJUSTMENTS,
+  encodeRle,
+} from "@lumorphia/editor-recipe";
+import {
+  activePortraitGroup,
+  editorReducer,
+  initialEditorState,
+  type EditorState,
+} from "./state.ts";
+
+const loaded: EditorState = editorReducer(initialEditorState, {
+  type: "image/loaded",
+  draftId: "d1",
+  image: {
+    bitmap: {} as ImageBitmap,
+    blob: new Blob(),
+    name: "a.png",
+    format: "png",
+    original: { width: 1, height: 1 },
+  },
+});
+
+describe("editorReducer", () => {
+  it("drag preview does not add history, commit adds exactly one entry with the pre-drag base", () => {
+    let s = loaded;
+    s = editorReducer(s, { type: "adjust/preview", key: "exposure", value: 0.5 });
+    s = editorReducer(s, { type: "adjust/preview", key: "exposure", value: 1 });
+    s = editorReducer(s, { type: "adjust/preview", key: "exposure", value: 1.5 });
+    expect(s.history.past).toHaveLength(0);
+    expect(s.history.present.adjust.exposure).toBe(1.5);
+    s = editorReducer(s, { type: "adjust/commit", key: "exposure", value: 1.5 });
+    expect(s.history.past).toHaveLength(1);
+    expect(s.history.past[0]).toBe(DEFAULT_RECIPE);
+    expect(s.dragBase).toBeNull();
+    s = editorReducer(s, { type: "history/undo" });
+    expect(s.history.present.adjust.exposure).toBe(0);
+  });
+
+  it("applying a preset records presetId and is undoable", () => {
+    let s = editorReducer(loaded, { type: "preset/apply", id: "mono" });
+    expect(s.history.present.presetId).toBe("mono");
+    expect(s.history.present.adjust.saturation).toBe(-100);
+    s = editorReducer(s, { type: "history/undo" });
+    expect(s.history.present).toBe(DEFAULT_RECIPE);
+  });
+
+  it("manual adjust after a preset clears presetId", () => {
+    let s = editorReducer(loaded, { type: "preset/apply", id: "mono" });
+    s = editorReducer(s, { type: "adjust/commit", key: "contrast", value: 10 });
+    expect(s.history.present.presetId).toBeNull();
+    expect(s.history.present.adjust.saturation).toBe(-100);
+  });
+
+  it("reset returns to defaults as one undoable step", () => {
+    let s = editorReducer(loaded, { type: "preset/apply", id: "vivid" });
+    s = editorReducer(s, { type: "geometry/commit", patch: { rotation: 90 } });
+    s = editorReducer(s, { type: "recipe/reset" });
+    expect(s.history.present).toBe(DEFAULT_RECIPE);
+    s = editorReducer(s, { type: "history/undo" });
+    expect(s.history.present.geometry.rotation).toBe(90);
+  });
+
+  it("ignores unknown preset ids", () => {
+    const s = editorReducer(loaded, { type: "preset/apply", id: "nope" });
+    expect(s).toBe(loaded);
+  });
+
+  it("loading a new image resets history and clears errors", () => {
+    let s = editorReducer(loaded, { type: "ui/error", error: "x" });
+    s = editorReducer(s, { type: "preset/apply", id: "film" });
+    s = editorReducer(s, { type: "image/loaded", draftId: "d2", image: loaded.source! });
+    expect(s.history.past).toHaveLength(0);
+    expect(s.ui.error).toBeNull();
+    expect(s.draftId).toBe("d2");
+  });
+});
+
+describe("compare slider", () => {
+  it("境界は 0..1 に収め、切り抜きを始めると比較を切る", () => {
+    let s = editorReducer(initialEditorState, { type: "ui/compare", on: true });
+    s = editorReducer(s, { type: "ui/compare-position", position: 1.7 });
+    expect(s.ui.comparePosition).toBe(1);
+    s = editorReducer(s, { type: "ui/compare-position", position: -0.2 });
+    expect(s.ui.comparePosition).toBe(0);
+    s = editorReducer(s, { type: "ui/cropping", on: true });
+    expect(s.ui.comparing).toBe(false);
+  });
+});
+
+describe("editorReducer: 部分補正 (#109)", () => {
+  const withOne = editorReducer(loaded, { type: "local/add", kind: "ellipse" });
+  const id = withOne.history.present.localAdjustments[0]!.id;
+
+  it("adds an ellipse adjustment as one history step and selects it", () => {
+    expect(withOne.history.past).toHaveLength(1);
+    expect(withOne.history.pastLabels[0]).toBe("部分補正を追加");
+    expect(withOne.history.present.localAdjustments).toHaveLength(1);
+    expect(withOne.history.present.localAdjustments[0]!.mask.kind).toBe("ellipse");
+    expect(withOne.ui.local.selectedId).toBe(id);
+    expect(withOne.ui.tool).toBe("local");
+  });
+
+  it("places a new ellipse where asked (the centre of the current view)", () => {
+    const at = { cx: 0.2, cy: 0.7, rx: 0.05, ry: 0.06 };
+    const s = editorReducer(loaded, { type: "local/add", kind: "ellipse", at });
+    expect(s.history.present.localAdjustments[0]!.mask).toEqual({ ...DEFAULT_ELLIPSE_MASK, ...at });
+    // ブラシには関係ない
+    const b = editorReducer(loaded, { type: "local/add", kind: "brush", at });
+    expect(b.history.present.localAdjustments[0]!.mask.kind).toBe("brush");
+  });
+
+  it("adds with a preset applied when asked", () => {
+    const s = editorReducer(loaded, { type: "local/add", kind: "ellipse", presetId: "eyes" });
+    const local = s.history.present.localAdjustments[0]!;
+    expect(local.presetId).toBe("eyes");
+    expect(local.adjust.sharpen).toBe(30);
+    expect(s.history.pastLabels[0]).toBe("部分補正を追加: 瞳強調");
+  });
+
+  it("refuses an adjustment beyond the limit (v3 は 12)", () => {
+    let s = loaded;
+    for (let i = 0; i < MAX_LOCAL_ADJUSTMENTS + 1; i++)
+      s = editorReducer(s, { type: "local/add", kind: "ellipse" });
+    expect(s.history.present.localAdjustments).toHaveLength(MAX_LOCAL_ADJUSTMENTS);
+    expect(s.history.past).toHaveLength(MAX_LOCAL_ADJUSTMENTS);
+  });
+
+  it("adds a brush stroke to a polygon mask (自動で置いたマスクをブラシで直す)", () => {
+    const polygon = {
+      kind: "polygon" as const,
+      rings: [
+        [
+          { x: 0.2, y: 0.2 },
+          { x: 0.8, y: 0.2 },
+          { x: 0.5, y: 0.8 },
+        ],
+      ],
+      strokes: [],
+      feather: 0,
+      invert: false,
+    };
+    let s = editorReducer(withOne, { type: "local/mask-commit", id: id, mask: polygon });
+    const stroke = { mode: "erase" as const, size: 0.1, hardness: 1, points: [{ x: 0.5, y: 0.5 }] };
+    s = editorReducer(s, { type: "local/stroke-commit", id: id, stroke });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind).toBe("polygon");
+    expect(mask.kind === "polygon" && mask.strokes).toEqual([stroke]);
+  });
+
+  it("adds several adjustments at once as one history step with a shared groupId (自動選択)", () => {
+    const s = editorReducer(loaded, {
+      type: "local/add-auto",
+      label: "瞳強調 (自動)",
+      groupId: "face1",
+      items: [
+        { presetId: "eyes", mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.4 } },
+        { presetId: "eyes", mask: { ...DEFAULT_ELLIPSE_MASK, cx: 0.6 } },
+      ],
+    });
+    const list = s.history.present.localAdjustments;
+    expect(list).toHaveLength(2);
+    expect(list.map((l) => l.groupId)).toEqual(["face1", "face1"]);
+    expect(list[0]!.presetId).toBe("eyes");
+    expect(list[0]!.adjust.sharpen).toBe(30);
+    expect(s.history.past).toHaveLength(1);
+    expect(s.history.pastLabels[0]).toBe("瞳強調 (自動)");
+    expect(s.ui.local.selectedId).toBe(list[0]!.id);
+    expect(s.ui.tool).toBe("local");
+  });
+
+  it("adds nothing when the batch would exceed the limit", () => {
+    let s = loaded;
+    for (let i = 0; i < MAX_LOCAL_ADJUSTMENTS - 1; i++)
+      s = editorReducer(s, { type: "local/add", kind: "ellipse" });
+    const before = s.history.present;
+    s = editorReducer(s, {
+      type: "local/add-auto",
+      label: "x",
+      items: [
+        { presetId: "eyes", mask: DEFAULT_ELLIPSE_MASK },
+        { presetId: "eyes", mask: DEFAULT_ELLIPSE_MASK },
+      ],
+    });
+    expect(s.history.present).toBe(before);
+  });
+
+  it("tracks inference status and notice in the ui state", () => {
+    let s = editorReducer(loaded, {
+      type: "ui/inference",
+      inference: { status: "loading", progress: { loaded: 1, total: 4 } },
+    });
+    expect(s.ui.local.inference.status).toBe("loading");
+    expect(s.ui.local.inference.progress).toEqual({ loaded: 1, total: 4 });
+    s = editorReducer(s, { type: "ui/inference", inference: { status: "idle", progress: null } });
+    s = editorReducer(s, { type: "ui/notice", notice: "自動選択できませんでした" });
+    expect(s.ui.local.inference.status).toBe("idle");
+    expect(s.ui.local.notice).toBe("自動選択できませんでした");
+    // 部分補正を足したら文言は消える
+    s = editorReducer(s, { type: "local/add", kind: "brush" });
+    expect(s.ui.local.notice).toBeNull();
+  });
+
+  it("keeps the segmentation candidates while their adjustment exists, and lets the mask be swapped with a label", () => {
+    const masks = [
+      { ...DEFAULT_ELLIPSE_MASK, cx: 0.1 },
+      { ...DEFAULT_ELLIPSE_MASK, cx: 0.2 },
+    ];
+    let s = editorReducer(withOne, { type: "ui/tap", tap: "gear" });
+    expect(s.ui.local.tap).toBe("gear");
+    s = editorReducer(s, { type: "ui/segment", segment: { localId: id, masks } });
+    s = editorReducer(s, { type: "ui/tap", tap: null });
+    s = editorReducer(s, {
+      type: "local/mask-commit",
+      id,
+      mask: masks[1]!,
+      label: "切り抜き: 全体",
+    });
+    expect(s.history.pastLabels.at(-1)).toBe("切り抜き: 全体");
+    expect(s.ui.local.segment?.localId).toBe(id);
+    s = editorReducer(s, { type: "local/remove", id });
+    expect(s.ui.local.segment).toBeNull();
+  });
+
+  it("gives each adjustment a distinct id", () => {
+    let s = withOne;
+    s = editorReducer(s, { type: "local/add", kind: "ellipse" });
+    const ids = s.history.present.localAdjustments.map((l) => l.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("drag preview of a local slider adds no history, commit adds one with the pre-drag base", () => {
+    let s = withOne;
+    s = editorReducer(s, { type: "local/adjust-preview", id, key: "exposure", value: 0.5 });
+    s = editorReducer(s, { type: "local/adjust-preview", id, key: "exposure", value: 1 });
+    expect(s.history.past).toHaveLength(1);
+    expect(s.history.present.localAdjustments[0]!.adjust.exposure).toBe(1);
+    s = editorReducer(s, { type: "local/adjust-commit", id, key: "exposure", value: 1 });
+    expect(s.history.past).toHaveLength(2);
+    expect(s.history.past[1]).toBe(withOne.history.present);
+    expect(s.history.pastLabels[1]).toBe("部分補正: 露光量 +1.00");
+  });
+
+  it("clears presetId when a local slider is committed", () => {
+    let s = editorReducer(loaded, { type: "local/add", kind: "ellipse", presetId: "eyes" });
+    const pid = s.history.present.localAdjustments[0]!.id;
+    s = editorReducer(s, { type: "local/adjust-commit", id: pid, key: "exposure", value: 0.1 });
+    expect(s.history.present.localAdjustments[0]!.presetId).toBeNull();
+  });
+
+  it("amount and mask drags follow the same preview / commit rule", () => {
+    let s = withOne;
+    s = editorReducer(s, { type: "local/amount-preview", id, value: 40 });
+    s = editorReducer(s, { type: "local/amount-commit", id, value: 40 });
+    expect(s.history.present.localAdjustments[0]!.amount).toBe(40);
+    const mask = { ...DEFAULT_ELLIPSE_MASK, cx: 0.2, cy: 0.3 };
+    s = editorReducer(s, { type: "local/mask-preview", id, mask });
+    expect(s.history.past).toHaveLength(2);
+    s = editorReducer(s, { type: "local/mask-commit", id, mask });
+    expect(s.history.past).toHaveLength(3);
+    expect(s.history.pastLabels[2]).toBe("マスクを動かす");
+    expect(s.history.present.localAdjustments[0]!.mask).toEqual(mask);
+  });
+
+  it("applies a local preset to the selected adjustment, keeping its mask", () => {
+    const mask = { ...DEFAULT_ELLIPSE_MASK, cx: 0.2 };
+    let s = editorReducer(withOne, { type: "local/mask-commit", id, mask });
+    s = editorReducer(s, { type: "local/preset", id, presetId: "gear" });
+    const local = s.history.present.localAdjustments[0]!;
+    expect(local.presetId).toBe("gear");
+    expect(local.adjust.shadows).toBe(45);
+    expect(local.mask).toEqual(mask);
+    expect(s.history.pastLabels.at(-1)).toBe("部分補正: 装備強調");
+  });
+
+  it("toggles visibility and removes, moving the selection to a neighbour", () => {
+    let s = editorReducer(withOne, { type: "local/add", kind: "ellipse" });
+    const second = s.history.present.localAdjustments[1]!.id;
+    s = editorReducer(s, { type: "local/toggle-visible", id });
+    expect(s.history.present.localAdjustments[0]!.visible).toBe(false);
+    expect(s.history.pastLabels.at(-1)).toBe("部分補正を隠す");
+    s = editorReducer(s, { type: "local/select", id: second });
+    s = editorReducer(s, { type: "local/remove", id: second });
+    expect(s.history.present.localAdjustments.map((l) => l.id)).toEqual([id]);
+    expect(s.ui.local.selectedId).toBe(id);
+    s = editorReducer(s, { type: "local/remove", id });
+    expect(s.ui.local.selectedId).toBeNull();
+  });
+
+  it("undo of an add drops the selection and reset clears everything", () => {
+    let s = editorReducer(withOne, { type: "history/undo" });
+    expect(s.history.present.localAdjustments).toHaveLength(0);
+    expect(s.ui.local.selectedId).toBeNull();
+    s = editorReducer(withOne, { type: "recipe/reset" });
+    expect(s.history.present.localAdjustments).toEqual([]);
+    expect(s.ui.local.selectedId).toBeNull();
+  });
+
+  it("ignores actions for an unknown id", () => {
+    const s = editorReducer(withOne, {
+      type: "local/adjust-commit",
+      id: "nope",
+      key: "exposure",
+      value: 1,
+    });
+    expect(s).toBe(withOne);
+  });
+
+  it("the mask overlay is off by default, can be pinned on, and is on while drawing", () => {
+    expect(initialEditorState.ui.local.showMask).toBe(false);
+    const on = editorReducer(withOne, { type: "ui/show-mask", on: true });
+    expect(on.ui.local.showMask).toBe(true);
+    expect(on.history).toBe(withOne.history);
+    expect(initialEditorState.ui.local.showHandles).toBe(true);
+    expect(
+      editorReducer(withOne, { type: "ui/show-handles", on: false }).ui.local.showHandles,
+    ).toBe(false);
+    const drawing = editorReducer(withOne, { type: "ui/drawing", on: true });
+    expect(drawing.ui.local.drawing).toBe(true);
+    expect(editorReducer(drawing, { type: "ui/drawing", on: false }).ui.local.drawing).toBe(false);
+  });
+
+  it("adds a brush adjustment and appends strokes as one history step each", () => {
+    let s = editorReducer(loaded, { type: "local/add", kind: "brush", presetId: "gear" });
+    const bid = s.history.present.localAdjustments[0]!.id;
+    expect(s.history.present.localAdjustments[0]!.mask.kind).toBe("brush");
+    const stroke = { mode: "add" as const, size: 0.1, hardness: 0.8, points: [{ x: 0.5, y: 0.5 }] };
+    s = editorReducer(s, { type: "local/stroke-commit", id: bid, stroke });
+    s = editorReducer(s, {
+      type: "local/stroke-commit",
+      id: bid,
+      stroke: { ...stroke, mode: "erase" },
+    });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind === "brush" && mask.strokes).toHaveLength(2);
+    expect(s.history.pastLabels.slice(-2)).toEqual(["ブラシ", "消しゴム"]);
+    // ストロークはプリセットの表示を外さない (色の値は変えていない)
+    expect(s.history.present.localAdjustments[0]!.presetId).toBe("gear");
+  });
+
+  it("ignores a stroke on an ellipse adjustment and beyond the stroke limit", () => {
+    const stroke = { mode: "add" as const, size: 0.1, hardness: 1, points: [{ x: 0.5, y: 0.5 }] };
+    expect(editorReducer(withOne, { type: "local/stroke-commit", id, stroke })).toBe(withOne);
+    let s = editorReducer(loaded, { type: "local/add", kind: "brush" });
+    const bid = s.history.present.localAdjustments[0]!.id;
+    for (let i = 0; i < 70; i++)
+      s = editorReducer(s, { type: "local/stroke-commit", id: bid, stroke });
+    const mask = s.history.present.localAdjustments[0]!.mask;
+    expect(mask.kind === "brush" && mask.strokes).toHaveLength(64);
+  });
+
+  it("keeps the brush settings in ui state", () => {
+    const s = editorReducer(loaded, {
+      type: "ui/brush",
+      brush: { mode: "erase", size: 0.2, hardness: 0.3 },
+    });
+    expect(s.ui.local.brush).toEqual({ mode: "erase", size: 0.2, hardness: 0.3 });
+    expect(initialEditorState.ui.local.brush.mode).toBe("add");
+  });
+});
+
+describe("editorReducer: 人物補正 (#175)", () => {
+  // 役はマスクの形で決まる (portraitRole): 反転したビットマップ = 背景、ビットマップ = 人物、多角形 = 顔
+  const bitmap = (invert: boolean) => ({
+    kind: "bitmap" as const,
+    width: 2,
+    height: 1,
+    rle: encodeRle(Uint8Array.from([1, 0])),
+    strokes: [],
+    feather: 0.1,
+    invert,
+  });
+  const polygon = {
+    kind: "polygon" as const,
+    rings: [
+      [
+        { x: 0.3, y: 0.2 },
+        { x: 0.7, y: 0.2 },
+        { x: 0.5, y: 0.8 },
+      ],
+    ],
+    strokes: [],
+    feather: 0.2,
+    invert: false,
+  };
+  const items = [
+    { name: "背景", presetId: null, mask: bitmap(true), amount: 60 },
+    { name: "人物", presetId: null, mask: bitmap(false), amount: 60 },
+    { name: "顔", presetId: "skin" as const, mask: polygon, amount: 80 },
+  ];
+  const applied = editorReducer(loaded, { type: "portrait/apply", items, presetId: "natural" });
+
+  it("applies a portrait as one history step, groups the adjustments, and remembers the group and preset", () => {
+    const list = applied.history.present.localAdjustments;
+    expect(list).toHaveLength(3);
+    expect(new Set(list.map((l) => l.groupId)).size).toBe(1);
+    expect(list[0]!.groupId).toBe(applied.ui.portrait.groupId);
+    expect(applied.ui.portrait.presetId).toBe("natural");
+    expect(applied.history.pastLabels.at(-1)).toBe("人物補正: ナチュラル");
+    expect(applied.ui.tool).toBe("portrait");
+  });
+
+  it("switches the preset for the whole group in one step", () => {
+    const s = editorReducer(applied, { type: "portrait/preset", presetId: "dramatic" });
+    expect(s.ui.portrait.presetId).toBe("dramatic");
+    expect(s.history.pastLabels.at(-1)).toBe("人物補正: ドラマチック");
+    const bg = s.history.present.localAdjustments[0]!;
+    expect(bg.adjust.exposure).toBe(-0.5);
+  });
+
+  it("amount preview / commit scale the group's amounts with the drag rule", () => {
+    let s = editorReducer(applied, { type: "portrait/amount-preview", value: 50 });
+    expect(s.history.past).toHaveLength(applied.history.past.length);
+    expect(s.history.present.localAdjustments[0]!.amount).toBe(30);
+    s = editorReducer(s, { type: "portrait/amount-commit", value: 50 });
+    expect(s.history.past).toHaveLength(applied.history.past.length + 1);
+    expect(s.history.pastLabels.at(-1)).toBe("人物補正の効果量 50");
+  });
+
+  it("the group is inactive after undo and active again after redo", () => {
+    let s = editorReducer(applied, { type: "history/undo" });
+    expect(activePortraitGroup(s)).toBeNull();
+    expect(editorReducer(s, { type: "portrait/preset", presetId: "soft" })).toBe(s);
+    s = editorReducer(s, { type: "history/redo" });
+    expect(activePortraitGroup(s)).toBe(applied.ui.portrait.groupId);
+  });
+
+  it("keeps detected faces and the chosen one in the ui state", () => {
+    let s = editorReducer(loaded, { type: "portrait/faces", faces: [] });
+    expect(s.ui.portrait.faces).toEqual([]);
+    s = editorReducer(s, { type: "portrait/select-face", index: 1 });
+    expect(s.ui.portrait.selectedFace).toBe(1);
+    // 画像を開き直したら忘れる
+    s = editorReducer(s, { type: "image/loaded", draftId: "d3", image: loaded.source! });
+    expect(s.ui.portrait.faces).toBeNull();
+    expect(s.ui.portrait.selectedFace).toBe(0);
+  });
+});
