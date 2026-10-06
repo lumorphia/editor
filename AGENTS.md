@@ -10,10 +10,12 @@ packages/editor-recipe  @lumorphia/editor-recipe  編集レシピ (zod)。ブラ
 packages/editor-engine  @lumorphia/editor-engine  状態、描画、推論 (Worker)、下書き、CLI editor-models
 packages/editor-react   @lumorphia/editor-react   UI。<Editor host={...} />
 apps/web                単独アプリ (E2E の土台を兼ねる)
-docs/adr/               設計判断
+e2e/                    E2E (prismtone から移した。apps/web を土台にして回す: #3)
+docs/design/            設計 (edit-recipe.md: レシピ、editor.md: 画面・描画・推論・テスト)
+docs/adr/               設計判断 (README.md に一覧と prismtone の番号との対応)
 ```
 
-パッケージの中身は lumorphia/prismtone から履歴ごと移す (#2)。
+パッケージの中身は lumorphia/prismtone から履歴ごと移した。コミットメッセージの `lumorphia/prismtone#N` は prismtone の Issue / PR。
 
 ## 依存の方向 (ESLint が強制する。tooling/eslint-boundaries.test.ts が確かめる)
 
