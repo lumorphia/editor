@@ -1,0 +1,42 @@
+{
+  "name": "@lumorphia/editor-recipe",
+  "version": "0.0.0",
+  "description": "現像の編集レシピ (zod)。ブラウザとサーバーの両方で動く",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lumorphia/editor.git",
+    "directory": "packages/editor-recipe"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./labels": {
+      "source": "./src/labels.ts",
+      "types": "./dist/labels.d.ts",
+      "default": "./dist/labels.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepack": "cp ../../LICENSE LICENSE",
+    "postpack": "rm -f LICENSE"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
