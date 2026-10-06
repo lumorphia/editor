@@ -38,6 +38,13 @@ apps/web       ->  上の全部
 
 コミットは `feat:` `fix:` `docs:` `test:` `refactor:` `build:` `ci:` の Conventional Commits、本文は日本語。
 
+## リリース
+
+- `main` への push で release-please がリリース PR (版と CHANGELOG.md) を開き直す。リリース PR をマージすると GitHub Release を作り、CI の release ジョブが 3 つのパッケージを同じ版で GitHub Packages に公開する ([ADR-0007](docs/adr/0007-distribution-github-packages.md))
+- `develop` → `main` の PR を作り、マージしてからリリース PR をマージする
+- 版の上げ方は Conventional Commits から決まる (`feat:` で minor、`fix:` / `refactor:` / `perf:` で patch。0.x のあいだは破壊的変更も minor)。レシピの互換は [ADR-0008](docs/adr/0008-recipe-compatibility.md)
+- 同じ版は出し直せない。公開の設定は `tooling/packages.test.ts` が確かめる
+
 ## テストの書き方
 
 - **1 つの `it` に 1 つの振る舞い**。名前は「何をすると何になる」を言い切る。落ちたときにテスト名だけで何が壊れたか分かるのが目安
