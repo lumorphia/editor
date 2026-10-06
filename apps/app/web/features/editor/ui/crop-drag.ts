@@ -1,4 +1,4 @@
-import type { GeometryV1 } from "@prismtone/shared/recipe";
+import type { GeometryV1 } from "@lumorphia/editor-recipe";
 
 export type Crop = NonNullable<GeometryV1["crop"]>;
 export type Handle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";

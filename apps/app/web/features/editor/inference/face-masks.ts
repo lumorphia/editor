@@ -1,4 +1,4 @@
-import type { EllipseMaskV2, PolygonMaskV3 } from "@prismtone/shared/recipe";
+import type { EllipseMaskV2, PolygonMaskV3 } from "@lumorphia/editor-recipe";
 
 /**
  * 顔検出 (face.worker.ts) の結果から部分補正のマスクを組む純関数 (#176、ADR-0025)。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encodeRle, type BitmapMaskV3 } from "@prismtone/shared/recipe";
+import { encodeRle, type BitmapMaskV3 } from "@lumorphia/editor-recipe";
 import { AUTO_SELECT_FAILED, planFaceSelection, planSegmentSelection } from "./auto-select.ts";
 import type { FaceResult } from "./face-masks.ts";
 

@@ -4,7 +4,7 @@ import {
   type GeometryV1,
   type LocalAdjust,
   type LocalAdjustment,
-} from "@prismtone/shared/recipe";
+} from "./index.ts";
 
 /** 補正項目の表示名。AdjustPanel と履歴の操作名で共有する */
 export const ADJUST_LABELS: Readonly<Record<keyof AdjustV1, string>> = {

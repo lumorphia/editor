@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ELLIPSE_MASK, DEFAULT_LOCAL_ADJUSTMENT } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK, DEFAULT_LOCAL_ADJUSTMENT } from "./index.ts";
 import { adjustLabel, geometryLabel, localAdjustLabel, localAdjustmentsSummary } from "./labels.ts";
 
 describe("operation labels", () => {

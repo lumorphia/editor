@@ -1,5 +1,5 @@
-import type { AdjustV1 } from "@prismtone/shared/recipe";
-import { ADJUST_LABELS } from "../labels.ts";
+import type { AdjustV1 } from "@lumorphia/editor-recipe";
+import { ADJUST_LABELS } from "@lumorphia/editor-recipe/labels";
 import { Slider } from "./Slider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 

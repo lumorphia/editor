@@ -11,7 +11,7 @@ import {
   TexturePool,
   type WebGLRenderer,
 } from "pixi.js";
-import type { BrushStrokeV2, EditRecipe, GeometryV1 } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, EditRecipe, GeometryV1 } from "@lumorphia/editor-recipe";
 import { canvasToImageUv } from "../mask-math.ts";
 import { DevelopStage } from "./develop-stage.ts";
 import { canvasSize, cropRect, exportScale, totalRotationDeg, type Size } from "./geometry.ts";

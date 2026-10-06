@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@lumorphia/editor-recipe";
 import { activePortraitGroup, editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
@@ -35,7 +35,7 @@ import {
   findPortraitPreset,
   portraitAmount,
   type PortraitPresetId,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import { CompareSlider } from "./CompareSlider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 

@@ -3,7 +3,7 @@ import {
   type BitmapMaskV3,
   type PortraitPreset,
   type PortraitRole,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import type { AutoLocalItem } from "../state.ts";
 import { facePolygon, irisEllipses, type FaceResult } from "./face-masks.ts";
 import type { NormalizedPoint } from "./face-masks.ts";

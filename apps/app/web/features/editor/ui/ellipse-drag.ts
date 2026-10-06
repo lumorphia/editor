@@ -1,4 +1,4 @@
-import type { EllipseMaskV2 } from "@prismtone/shared/recipe";
+import type { EllipseMaskV2 } from "@lumorphia/editor-recipe";
 import type { Point } from "../mask-math.ts";
 import type { Size } from "../render/geometry.ts";
 

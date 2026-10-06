@@ -6,7 +6,7 @@ import {
   DEFAULT_LOCAL_ADJUST,
   DEFAULT_LOCAL_ADJUSTMENT,
   DEFAULT_RECIPE,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import {
   applyAdjust,
   applyLocalAdjust,

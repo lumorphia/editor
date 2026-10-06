@@ -1,4 +1,4 @@
-import type { EllipseMaskV2, GeometryV1 } from "@prismtone/shared/recipe";
+import type { EllipseMaskV2, GeometryV1 } from "@lumorphia/editor-recipe";
 import { canvasSize, totalRotationDeg, type Size } from "./render/geometry.ts";
 
 /**

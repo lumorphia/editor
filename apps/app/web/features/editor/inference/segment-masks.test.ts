@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BITMAP_MAX_EDGE, decodeRle } from "@prismtone/shared/recipe";
+import { BITMAP_MAX_EDGE, decodeRle } from "@lumorphia/editor-recipe";
 import { SAM_LEVELS, toBitmapMask } from "./segment-masks.ts";
 
 describe("toBitmapMask", () => {

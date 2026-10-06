@@ -11,7 +11,7 @@
  * spike (docs/spikes/2026-09-21-auto-select.md) の segmentAnything を移したもの。
  */
 import type * as TransformersNs from "@huggingface/transformers";
-import type { BitmapMaskV3 } from "@prismtone/shared/recipe";
+import type { BitmapMaskV3 } from "@lumorphia/editor-recipe";
 import { toBitmapMask } from "./segment-masks.ts";
 
 export const SAM_MODEL_BASE = "/models/slimsam-77-q8-v1";

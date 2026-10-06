@@ -7,7 +7,7 @@ import {
   type Mask,
   type PolygonMaskV3,
   type StrokedMask,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import { ellipseMaskValue, type Point } from "./mask-math.ts";
 import type { Size } from "./render/geometry.ts";
 

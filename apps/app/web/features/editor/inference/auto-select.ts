@@ -1,4 +1,4 @@
-import type { BitmapMaskV3, LocalPresetId } from "@prismtone/shared/recipe";
+import type { BitmapMaskV3, LocalPresetId } from "@lumorphia/editor-recipe";
 import type { AutoLocalItem } from "../state.ts";
 import { facePolygon, irisEllipses, pickMainFace, type FaceResult } from "./face-masks.ts";
 import { GEAR_LEVEL, PERSON_LEVEL } from "./segment-masks.ts";

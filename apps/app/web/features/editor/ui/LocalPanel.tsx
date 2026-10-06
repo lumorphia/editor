@@ -6,8 +6,8 @@ import {
   type LocalAdjust,
   type LocalAdjustment,
   type LocalPresetId,
-} from "@prismtone/shared/recipe";
-import { LOCAL_ADJUST_LABELS } from "../labels.ts";
+} from "@lumorphia/editor-recipe";
+import { LOCAL_ADJUST_LABELS } from "@lumorphia/editor-recipe/labels";
 import type { BrushSettings, EditorState, InferenceStatus } from "../state.ts";
 import type { SegmentSelectionKind } from "../inference/auto-select.ts";
 import { SAM_LEVELS } from "../inference/segment-masks.ts";

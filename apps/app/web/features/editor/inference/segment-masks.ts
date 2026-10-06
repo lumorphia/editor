@@ -1,4 +1,4 @@
-import { BITMAP_MAX_EDGE, encodeRle, type BitmapMaskV3 } from "@prismtone/shared/recipe";
+import { BITMAP_MAX_EDGE, encodeRle, type BitmapMaskV3 } from "@lumorphia/editor-recipe";
 
 /**
  * SAM の切り抜き (segment.worker.ts) をレシピの bitmap マスクにする純関数 (#177、ADR-0025)。

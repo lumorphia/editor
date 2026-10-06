@@ -22,11 +22,11 @@ import {
   type LocalAdjustment,
   type LocalPresetId,
   type Mask,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import type { SegmentSelectionKind } from "./inference/auto-select.ts";
 import type { FaceResult } from "./inference/face-masks.ts";
 import { commit, createHistory, preview, redo, undo, type History } from "./history.ts";
-import { adjustLabel, geometryLabel, localAdjustLabel } from "./labels.ts";
+import { adjustLabel, geometryLabel, localAdjustLabel } from "@lumorphia/editor-recipe/labels";
 import type { LoadedImage } from "./load-image.ts";
 
 export type Tool = "adjust" | "geometry" | "presets" | "local" | "portrait";

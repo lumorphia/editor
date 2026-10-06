@@ -1,4 +1,4 @@
-import type { GeometryV1 } from "@prismtone/shared/recipe";
+import type { GeometryV1 } from "@lumorphia/editor-recipe";
 
 /**
  * 幾何変換の純粋な計算部分。PixiJS には依存しない (単体テスト対象)。

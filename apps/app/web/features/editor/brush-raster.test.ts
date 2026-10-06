@@ -5,7 +5,7 @@ import {
   type BitmapMaskV3,
   type BrushStrokeV2,
   type PolygonMaskV3,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import {
   bitmapMaskValue,
   brushMaskValue,

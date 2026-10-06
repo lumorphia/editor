@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { BrushStrokeV2, GeometryV1 } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, GeometryV1 } from "@lumorphia/editor-recipe";
 import { simplifyPoints } from "../brush-raster.ts";
 import { canvasToImageUv, type Point } from "../mask-math.ts";
 import type { Size } from "../render/geometry.ts";
