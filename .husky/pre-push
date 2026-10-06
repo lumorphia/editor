@@ -1,0 +1,2 @@
+# push 前に typecheck と単体テスト
+pnpm typecheck && pnpm test
