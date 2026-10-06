@@ -1,50 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RECIPE } from "@prismtone/shared/recipe";
 import {
-  addToPendingExports,
+  createDraftStore,
   DRAFT_LIMIT,
-  PENDING_EXPORT_LIMIT,
   selectStaleDrafts,
   upgradeStoredRecipe,
   type Draft,
-  type PendingExport,
+  type DraftKeyValue,
 } from "./drafts.ts";
 
-const pending = (draftId: string, createdAt = 1): PendingExport => ({
-  draftId,
-  blob: new Blob([draftId], { type: "image/webp" }),
+const draft = (id: string, updatedAt: number): Draft => ({
+  id,
+  name: id,
+  blob: new Blob([id]),
   recipe: DEFAULT_RECIPE,
-  createdAt,
+  updatedAt,
 });
 
-describe("addToPendingExports", () => {
-  it("appends new drafts while preserving order", () => {
-    expect(addToPendingExports([pending("a")], pending("b")).map((item) => item.draftId)).toEqual([
-      "a",
-      "b",
-    ]);
-  });
-
-  it("replaces another export of the same draft in place", () => {
-    const result = addToPendingExports([pending("a"), pending("b")], pending("a", 2));
-    expect(result.map((item) => item.draftId)).toEqual(["a", "b"]);
-    expect(result[0]?.createdAt).toBe(2);
-  });
-
-  it("rejects more than five different drafts", () => {
-    const full = Array.from({ length: PENDING_EXPORT_LIMIT }, (_, index) => pending(String(index)));
-    expect(() => addToPendingExports(full, pending("overflow"))).toThrow("5 枚まで");
-  });
-});
+/** IndexedDB の代わり。キーと値をそのまま持つ */
+function memoryKeyValue(initial: Record<string, unknown> = {}): DraftKeyValue & {
+  entries: () => Record<string, unknown>;
+} {
+  let data: Record<string, unknown> = { ...initial };
+  return {
+    get: async <T>(key: string) => data[key] as T | undefined,
+    set: async (key, value) => {
+      data = { ...data, [key]: value };
+    },
+    del: async (key) => {
+      const { [key]: _removed, ...rest } = data;
+      data = rest;
+    },
+    keys: async () => Object.keys(data),
+    entries: () => data,
+  };
+}
 
 describe("selectStaleDrafts", () => {
-  const draft = (id: string, updatedAt: number): Draft => ({
-    id,
-    name: id,
-    blob: new Blob([id]),
-    recipe: DEFAULT_RECIPE,
-    updatedAt,
-  });
   const seven = Array.from({ length: DRAFT_LIMIT + 2 }, (_, i) => draft(String(i), i));
 
   it("removes the oldest beyond the limit", () => {
@@ -52,12 +44,60 @@ describe("selectStaleDrafts", () => {
     expect(selectStaleDrafts(seven.slice(0, DRAFT_LIMIT), [])).toEqual([]);
   });
 
-  it("never removes drafts that are still pending exports, even if they are the oldest", () => {
+  it("never removes protected drafts, even if they are the oldest", () => {
     expect(selectStaleDrafts(seven, ["0", "1"]).map((d) => d.id)).toEqual(["2", "3"]);
     // 保護で候補が足りないときは残る分を消すだけ
     expect(selectStaleDrafts(seven, ["0", "1", "2", "3", "4", "5"]).map((d) => d.id)).toEqual([
       "6",
     ]);
+  });
+});
+
+describe("createDraftStore", () => {
+  it("stores a draft under the draft: key so existing drafts stay readable", async () => {
+    const kv = memoryKeyValue();
+    await createDraftStore(kv).save(draft("a", 1));
+    expect(Object.keys(kv.entries())).toEqual(["draft:a"]);
+  });
+
+  it("loads a draft saved before the split with its recipe upgraded", async () => {
+    const { version: _v, localAdjustments: _l, ...v1 } = DEFAULT_RECIPE;
+    const kv = memoryKeyValue({
+      "draft:old": { ...draft("old", 1), recipe: { ...v1, version: 1 } },
+    });
+    expect((await createDraftStore(kv).load("old"))?.recipe).toEqual(DEFAULT_RECIPE);
+  });
+
+  it("treats a draft with an unreadable recipe as missing", async () => {
+    const kv = memoryKeyValue({ "draft:bad": { ...draft("bad", 1), recipe: { version: 99 } } });
+    expect(await createDraftStore(kv).load("bad")).toBeUndefined();
+  });
+
+  it("drops the oldest drafts once the limit is exceeded", async () => {
+    const kv = memoryKeyValue();
+    const store = createDraftStore(kv);
+    for (let i = 0; i < DRAFT_LIMIT + 1; i += 1) await store.save(draft(String(i), i));
+    expect((await store.list()).map((d) => d.id)).toEqual(["5", "4", "3", "2", "1"]);
+  });
+
+  it("keeps drafts the host protects when trimming", async () => {
+    const kv = memoryKeyValue();
+    const store = createDraftStore(kv, { protectedIds: async () => ["0"] });
+    for (let i = 0; i < DRAFT_LIMIT + 1; i += 1) await store.save(draft(String(i), i));
+    expect((await store.list()).map((d) => d.id)).toEqual(["5", "4", "3", "2", "0"]);
+  });
+
+  it("ignores keys that other features keep in the same store", async () => {
+    const kv = memoryKeyValue({ pending: [], "post-form": {}, "postDraft:x": {} });
+    expect(await createDraftStore(kv).list()).toEqual([]);
+  });
+
+  it("removes a draft by id", async () => {
+    const kv = memoryKeyValue();
+    const store = createDraftStore(kv);
+    await store.save(draft("a", 1));
+    await store.remove("a");
+    expect(await store.load("a")).toBeUndefined();
   });
 });
 
