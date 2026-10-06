@@ -34,7 +34,8 @@ apps/web       ->  上の全部
 1. `develop` から `feat/<topic>` を切る。`develop` と `main` に直接コミットしない。`main` はリリース用で、`develop` からだけマージする
 2. **TDD で進める**。実装より先に、失敗するテストを書く (red) → 通す最小の実装 (green) → 整える (refactor)。新しいテストは、実装前に一度落ちるのを確かめてから通す
 3. `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test` を通す。husky が pre-commit で変更ファイルの ESLint / Prettier と gitleaks、pre-push で typecheck と test を回す (`pnpm install` で有効になる)
-4. `develop` 向けに PR を作る (`gh pr create --base develop`)。Issue は PR 本文とコミットメッセージに `Closes #N` を書いて閉じる
+4. `develop` 向けに PR を作る (`gh pr create --base develop`)。Issue は PR 本文とコミットメッセージに `Closes #N` を書いて閉じる (`main` に入ったときに閉じる)
+5. **`develop` へは「Rebase and merge」でマージする** (ruleset `develop linear history` がマージコミットを止める)。マージコミットは本文に PR のタイトル (`fix: ...`) が入り、release-please がそれを元のコミットとは別にもう 1 件と数えて、変更履歴に同じ行が 2 つ並ぶ (release-please の `splitMessages`)。squash は TDD の小さなコミットがまとまるので使わない。`develop` → `main` だけはマージコミット (本文は `release: ...` で拾われない)
 
 コミットは `feat:` `fix:` `docs:` `test:` `refactor:` `build:` `ci:` の Conventional Commits、本文は日本語。
 
@@ -42,7 +43,7 @@ apps/web       ->  上の全部
 
 - `main` への push で release-please がリリース PR (版と CHANGELOG.md) を開き直す。リリース PR をマージすると GitHub Release を作り、CI の release ジョブが 3 つのパッケージを同じ版で GitHub Packages に公開する ([ADR-0007](docs/adr/0007-distribution-github-packages.md))
 - `develop` → `main` の PR を作り、マージしてからリリース PR をマージする
-- 版の上げ方は Conventional Commits から決まる (`feat:` で minor、`fix:` / `refactor:` / `perf:` で patch。0.x のあいだは破壊的変更も minor)。レシピの互換は [ADR-0008](docs/adr/0008-recipe-compatibility.md)
+- 版の上げ方は Conventional Commits から決まる (`feat:` で minor、`fix:` / `refactor:` / `perf:` で patch、破壊的変更 (`feat!:` や `BREAKING CHANGE:`) で major)。レシピの互換は [ADR-0008](docs/adr/0008-recipe-compatibility.md)
 - 同じ版は出し直せない。公開の設定は `tooling/packages.test.ts` が確かめる
 
 ## テストの書き方
