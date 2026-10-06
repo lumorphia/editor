@@ -1,4 +1,4 @@
-import type { GeometryV1 } from "@prismtone/shared/recipe";
+import type { GeometryV1 } from "@lumorphia/editor-recipe";
 import type { FaceResult } from "../inference/face-masks.ts";
 import { imageUvToCanvas } from "../mask-math.ts";
 import type { Size } from "../render/geometry.ts";

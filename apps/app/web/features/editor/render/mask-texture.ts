@@ -1,5 +1,5 @@
 import { Texture, TextureStyle } from "pixi.js";
-import type { BrushStrokeV2, StrokedMask } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, StrokedMask } from "@lumorphia/editor-recipe";
 import { createMaskRaster, rasterizeMask, stampStroke, type MaskRaster } from "../brush-raster.ts";
 import type { Size } from "./geometry.ts";
 

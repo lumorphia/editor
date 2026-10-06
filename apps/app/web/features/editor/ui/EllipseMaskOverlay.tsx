@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { EllipseMaskV2, GeometryV1 } from "@prismtone/shared/recipe";
+import type { EllipseMaskV2, GeometryV1 } from "@lumorphia/editor-recipe";
 import { canvasToImageUv, imageUvToCanvas, type Point } from "../mask-math.ts";
 import { totalRotationDeg, type Size } from "../render/geometry.ts";
 import {

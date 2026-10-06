@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RECIPE, type EditRecipe } from "@prismtone/shared/recipe";
+import { DEFAULT_RECIPE, type EditRecipe } from "@lumorphia/editor-recipe";
 import {
   canRedo,
   canUndo,

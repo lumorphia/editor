@@ -1,4 +1,4 @@
-import { PORTRAIT_PRESETS, type PortraitPresetId } from "@prismtone/shared/recipe";
+import { PORTRAIT_PRESETS, type PortraitPresetId } from "@lumorphia/editor-recipe";
 import type { FaceResult } from "../inference/face-masks.ts";
 import type { InferenceStatus } from "../state.ts";
 import { Slider } from "./Slider.tsx";

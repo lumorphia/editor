@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EllipseMaskV2 } from "@prismtone/shared/recipe";
+import type { EllipseMaskV2 } from "@lumorphia/editor-recipe";
 import { facePolygon, irisEllipses, pickMainFace, type FaceResult } from "./face-masks.ts";
 
 const square = (cx: number, cy: number, r: number) => [

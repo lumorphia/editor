@@ -1,4 +1,4 @@
-import { ASPECT_PRESETS, type GeometryV1 } from "@prismtone/shared/recipe";
+import { ASPECT_PRESETS, type GeometryV1 } from "@lumorphia/editor-recipe";
 import { Slider } from "./Slider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 

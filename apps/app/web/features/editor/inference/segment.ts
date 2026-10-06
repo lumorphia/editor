@@ -1,4 +1,4 @@
-import type { BitmapMaskV3 } from "@prismtone/shared/recipe";
+import type { BitmapMaskV3 } from "@lumorphia/editor-recipe";
 import { InferenceError, type Progress } from "./face.ts";
 import type { SegmentRequest, SegmentResponse } from "./segment.worker.ts";
 

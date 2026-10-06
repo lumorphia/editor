@@ -1,5 +1,5 @@
 import { Container, Rectangle, RenderTexture, Sprite, type Renderer, type Texture } from "pixi.js";
-import type { BrushStrokeV2, EditRecipe, LocalAdjustment } from "@prismtone/shared/recipe";
+import type { BrushStrokeV2, EditRecipe, LocalAdjustment } from "@lumorphia/editor-recipe";
 import { AdjustFilter } from "./adjust-filter.ts";
 import { LocalAdjustFilter } from "./local-adjust-filter.ts";
 import { MaskTexture } from "./mask-texture.ts";

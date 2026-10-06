@@ -1,5 +1,5 @@
 import { Filter, GlProgram } from "pixi.js";
-import type { AdjustV1 } from "@prismtone/shared/recipe";
+import type { AdjustV1 } from "@lumorphia/editor-recipe";
 import { normalizeAdjust } from "../adjust-math.ts";
 import { ADJUST_GLSL, FILTER_VERTEX } from "./adjust-glsl.ts";
 

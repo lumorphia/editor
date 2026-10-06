@@ -1,4 +1,4 @@
-import type { AdjustV1, EditRecipe, LocalAdjust } from "@prismtone/shared/recipe";
+import type { AdjustV1, EditRecipe, LocalAdjust } from "@lumorphia/editor-recipe";
 import type { Point } from "./mask-math.ts";
 import { maskValue } from "./brush-raster.ts";
 import type { Size } from "./render/geometry.ts";

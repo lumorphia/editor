@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { GeometryV1 } from "@prismtone/shared/recipe";
+import type { GeometryV1 } from "@lumorphia/editor-recipe";
 import { dragCrop, type Crop, type Handle } from "./crop-drag.ts";
 
 type Props = {

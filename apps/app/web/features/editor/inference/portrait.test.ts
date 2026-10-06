@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encodeRle, findPortraitPreset, type BitmapMaskV3 } from "@prismtone/shared/recipe";
+import { encodeRle, findPortraitPreset, type BitmapMaskV3 } from "@lumorphia/editor-recipe";
 import type { FaceResult } from "./face-masks.ts";
 import { buildPortraitItems, faceCenter } from "./portrait.ts";
 

@@ -8,7 +8,7 @@ import {
   DEFAULT_RECIPE,
   type EditRecipe,
   type LocalAdjustment,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 
 /**
  * 部分補正の性能計測 (#109、docs/spikes/2026-09-20-local-adjust-perf.md)。

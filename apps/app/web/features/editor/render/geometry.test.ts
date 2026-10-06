@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GEOMETRY } from "@prismtone/shared/recipe";
+import { DEFAULT_GEOMETRY } from "@lumorphia/editor-recipe";
 import {
   aspectRatio,
   canvasSize,

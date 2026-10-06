@@ -4,7 +4,7 @@ import {
   DEFAULT_RECIPE,
   MAX_LOCAL_ADJUSTMENTS,
   encodeRle,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import {
   activePortraitGroup,
   editorReducer,

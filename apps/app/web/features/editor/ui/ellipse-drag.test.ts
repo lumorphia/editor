@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ELLIPSE_MASK } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK } from "@lumorphia/editor-recipe";
 import { dragEllipse, ellipseHandles } from "./ellipse-drag.ts";
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;

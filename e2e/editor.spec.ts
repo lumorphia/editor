@@ -9,7 +9,7 @@ import {
   applyPreset,
   findPreset,
   type EditRecipe,
-} from "@prismtone/shared/recipe";
+} from "@lumorphia/editor-recipe";
 import { applyAdjust, applyRecipeAt } from "../apps/app/web/features/editor/adjust-math.ts";
 import { devLogin } from "./api.ts";
 import { continueToPostForm } from "./helpers.ts";
@@ -98,7 +98,7 @@ test.describe("editor", () => {
 
   test("GPU output matches the CPU reference for every preset", async ({ page }) => {
     await openEditorWithImage(page);
-    const { PRESETS } = await import("@prismtone/shared/recipe");
+    const { PRESETS } = await import("@lumorphia/editor-recipe");
     for (const preset of PRESETS) {
       const recipe = applyPreset(DEFAULT_RECIPE, preset);
       const out = await exportPixels(page, recipe, CENTERS);

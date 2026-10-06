@@ -1,5 +1,5 @@
 import { Filter, GlProgram, Texture, type TextureSource } from "pixi.js";
-import type { LocalAdjustment } from "@prismtone/shared/recipe";
+import type { LocalAdjustment } from "@lumorphia/editor-recipe";
 import { MIN_FEATHER } from "../mask-math.ts";
 import type { Size } from "./geometry.ts";
 import { ADJUST_GLSL, FILTER_VERTEX } from "./adjust-glsl.ts";

@@ -1,4 +1,4 @@
-import { PRESETS } from "@prismtone/shared/recipe";
+import { PRESETS } from "@lumorphia/editor-recipe";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 
 type Props = {

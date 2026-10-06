@@ -1,5 +1,5 @@
 import { createStore, del, get, keys, set } from "idb-keyval";
-import { migrateRecipe, type EditRecipe } from "@prismtone/shared/recipe";
+import { upgradeStoredRecipe, type EditRecipe } from "@lumorphia/editor-recipe";
 
 /**
  * 端末内の下書き (docs/design/04 §6, 03 §9)。原本 Blob とレシピを IndexedDB に置く。
@@ -37,19 +37,6 @@ export type DraftStoreOptions = {
   /** 上限を超えても消さない下書き。投稿画像として残っているもの (#64) など */
   protectedIds?: () => Promise<readonly string[]>;
 };
-
-/**
- * IndexedDB に残っているレシピを現行の版に上げる (docs/design/04 §5)。
- * 部分補正 (#109) より前に保存した下書きは version 1 なので、読むたびにここで揃える。
- * 読めないものは null (壊れた下書きは無かったことにする)
- */
-export function upgradeStoredRecipe(input: unknown): EditRecipe | null {
-  try {
-    return migrateRecipe(input);
-  } catch {
-    return null;
-  }
-}
 
 function upgradeDraft(draft: Draft | undefined): Draft | undefined {
   if (!draft) return undefined;

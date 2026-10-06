@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ELLIPSE_MASK, DEFAULT_GEOMETRY } from "@prismtone/shared/recipe";
+import { DEFAULT_ELLIPSE_MASK, DEFAULT_GEOMETRY } from "@lumorphia/editor-recipe";
 import { canvasToImageUv, ellipseMaskValue, imageUvToCanvas } from "./mask-math.ts";
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;

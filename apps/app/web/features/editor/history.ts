@@ -1,4 +1,4 @@
-import type { EditRecipe } from "@prismtone/shared/recipe";
+import type { EditRecipe } from "@lumorphia/editor-recipe";
 
 /**
  * undo / redo の履歴。レシピは不変オブジェクトとして扱い、常に新しい History を返す
