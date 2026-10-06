@@ -10,3 +10,6 @@ test-results/
 playwright-report/
 # ブラウザ内の認識のモデルと WASM (editor-models fetch が揃える。git には入れない)
 apps/*/models/
+
+# 公開のときにリポジトリの LICENSE を写す (prepack)
+packages/*/LICENSE
