@@ -1,7 +1,16 @@
 {
   "name": "@lumorphia/editor-engine",
   "version": "0.0.0",
-  "private": true,
+  "description": "現像のエンジン。状態、描画 (PixiJS / WebGL)、ブラウザ内の認識 (Worker)、下書き、モデル取得の CLI",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lumorphia/editor.git",
+    "directory": "packages/editor-engine"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -33,7 +42,9 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/finish-dist.ts && tsc -p tsconfig.bin.json",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "cp ../../LICENSE LICENSE",
+    "postpack": "rm -f LICENSE"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

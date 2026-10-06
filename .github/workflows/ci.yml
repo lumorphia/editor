@@ -1,9 +1,12 @@
 name: ci
 
 # 検査は PR でだけ回す。develop / main への push (= マージ) では、PR で確かめた中身を回し直さない。
-# 公開リポジトリなので Actions の時間の制約は無いが、同じ中身を 2 回回す意味が無い
+# 公開リポジトリなので Actions の時間の制約は無いが、同じ中身を 2 回回す意味が無い。
+# main への push (= リリース PR のマージ) では release-please と公開 (release ジョブ) だけを回す
 on:
   pull_request:
+  push:
+    branches: [main]
 
 # 同じ PR への連続 push で古い run を取り消す
 concurrency:
@@ -15,6 +18,7 @@ permissions:
 
 jobs:
   check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,6 +36,7 @@ jobs:
   # 単独アプリ (apps/web) に対して現像の E2E を回す。WebGL は SwiftShader。公開リポジトリで時間の制約が無く、
   # 30 秒ほどで終わるので、すべての PR で回す
   e2e:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,6 +73,7 @@ jobs:
 
   # シークレットの混入と高リスクの脆弱性。audit は警告に留める
   security:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,3 +102,41 @@ jobs:
       - name: pnpm audit (high 以上。警告)
         run: pnpm audit --audit-level=high --prod
         continue-on-error: true
+
+  # main に積まれた Conventional Commits から release-please がリリース PR (版と CHANGELOG.md) を開き直す。
+  # そのリリース PR をマージした push でリリース (vX.Y.Z のタグと GitHub Release) が作られ、3 つのパッケージを
+  # 同じ版で GitHub Packages に公開する (docs/adr/0007)。機能のマージだけでは公開しない
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: write
+    steps:
+      # GITHUB_TOKEN が開いた PR では ci が走らない (Actions の再帰防止)。リリース PR は版と CHANGELOG だけなので
+      # 検査は要らないが、required check にするなら RELEASE_PLEASE_TOKEN (PAT) を secrets に入れる
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - if: steps.release.outputs.release_created
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.release.outputs.release_created
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - if: steps.release.outputs.release_created
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@lumorphia"
+      - if: steps.release.outputs.release_created
+        run: pnpm install --frozen-lockfile
+      - if: steps.release.outputs.release_created
+        run: pnpm build:packages
+      # workspace:* は公開のときに同じ版に置き換わる (3 つは同じ版でそろって入る)
+      - if: steps.release.outputs.release_created
+        run: pnpm --filter "./packages/**" publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
