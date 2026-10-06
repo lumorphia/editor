@@ -11,8 +11,6 @@ import {
   type EditRecipe,
 } from "@lumorphia/editor-recipe";
 import { applyAdjust, applyRecipeAt } from "@lumorphia/editor-engine/reference";
-import { devLogin } from "./api.ts";
-import { continueToPostForm } from "./helpers.ts";
 
 // 4 色のブロックからなるテスト画像 (200x100)。左から赤・緑・青・灰
 const BLOCKS: [number, number, number][] = [
@@ -39,9 +37,9 @@ async function makePng(page: Page): Promise<Buffer> {
 
 async function openEditorWithImage(page: Page) {
   await page.addInitScript(() => {
-    (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+    (window as Window & { __LUMORPHIA_E2E__?: boolean }).__LUMORPHIA_E2E__ = true;
   });
-  await page.goto("/edit");
+  await page.goto("/");
   await expect(page.getByRole("button", { name: "画像を開く" })).toBeVisible();
   const png = await makePng(page);
   await page
@@ -49,8 +47,28 @@ async function openEditorWithImage(page: Page) {
     .setInputFiles({ name: "test.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
   await page.waitForFunction(() =>
-    Boolean((window as Window & { __prismtoneEditor?: unknown }).__prismtoneEditor),
+    Boolean((window as Window & { __lumorphiaEditor?: unknown }).__lumorphiaEditor),
   );
+}
+
+/** 自動保存された下書き (IndexedDB の draft:<id>) を ?draft= で開き直す。リロードと同じく状態はページから消える */
+async function reopenDraft(page: Page) {
+  const draftId = await page.evaluate(
+    () =>
+      new Promise<string>((resolve, reject) => {
+        const open = indexedDB.open("lumorphia-editor");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const req = open.result.transaction("kv").objectStore("kv").getAllKeys();
+          req.onsuccess = () => {
+            const key = (req.result as string[]).find((k) => k.startsWith("draft:"));
+            if (!key) reject(new Error("no draft"));
+            else resolve(key.slice("draft:".length));
+          };
+        };
+      }),
+  );
+  await page.goto(`/?draft=${draftId}`);
 }
 
 type Pixels = { width: number; height: number; type: string; pixels: number[][] };
@@ -64,11 +82,11 @@ async function exportPixels(
     ({ recipe, points }) =>
       (
         window as Window & {
-          __prismtoneEditor?: {
+          __lumorphiaEditor?: {
             exportPixels: (r: EditRecipe, p: { x: number; y: number }[]) => Promise<Pixels>;
           };
         }
-      ).__prismtoneEditor!.exportPixels(recipe, points),
+      ).__lumorphiaEditor!.exportPixels(recipe, points),
     { recipe, points },
   );
 }
@@ -84,7 +102,7 @@ function expectClose(actual: number[], expected: number[], tolerance: number) {
   );
 }
 
-// 各テストは /edit を開き直し、状態を共有しないので、ファイルの中でも並べて走らせる (#277)
+// 各テストはページを開き直し、状態を共有しないので、ファイルの中でも並べて走らせる (lumorphia/prismtone#277)
 test.describe.configure({ mode: "parallel" });
 
 test.describe("editor", () => {
@@ -158,7 +176,7 @@ test.describe("editor", () => {
     expectClose(c.pixels[1]!, BLOCKS[3]!, 2);
   });
 
-  test("a local adjustment applies inside its ellipse mask only, and follows rotation and crop (#109)", async ({
+  test("a local adjustment applies inside its ellipse mask only, and follows rotation and crop (lumorphia/prismtone#109)", async ({
     page,
   }) => {
     await openEditorWithImage(page);
@@ -223,7 +241,7 @@ test.describe("editor", () => {
     );
   });
 
-  test("a brush mask applies along its strokes, erase takes it back, and smoothing leaves flat areas alone (#109)", async ({
+  test("a brush mask applies along its strokes, erase takes it back, and smoothing leaves flat areas alone (lumorphia/prismtone#109)", async ({
     page,
   }) => {
     await openEditorWithImage(page);
@@ -283,7 +301,7 @@ test.describe("editor", () => {
       height: 100,
     }).map((value) => Math.round(value * 255));
 
-  test("background blur matches the CPU reference at a colour boundary (#184)", async ({
+  test("background blur matches the CPU reference at a colour boundary (lumorphia/prismtone#184)", async ({
     page,
   }) => {
     await openEditorWithImage(page);
@@ -293,7 +311,9 @@ test.describe("editor", () => {
     expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
   });
 
-  test("bloom adds blurred highlights like the CPU reference (#184)", async ({ page }) => {
+  test("bloom adds blurred highlights like the CPU reference (lumorphia/prismtone#184)", async ({
+    page,
+  }) => {
     await openEditorWithImage(page);
     const recipe = spatialRecipe({ bloom: 100 });
     const point = { x: 55, y: 50 };
@@ -301,7 +321,9 @@ test.describe("editor", () => {
     expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
   });
 
-  test("vignette darkens the corner like the CPU reference (#184)", async ({ page }) => {
+  test("vignette darkens the corner like the CPU reference (lumorphia/prismtone#184)", async ({
+    page,
+  }) => {
     await openEditorWithImage(page);
     const recipe = spatialRecipe({ vignette: 100 });
     const point = { x: 5, y: 5 };
@@ -309,7 +331,9 @@ test.describe("editor", () => {
     expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
   });
 
-  test("clarity raises local contrast like the CPU reference (#184)", async ({ page }) => {
+  test("clarity raises local contrast like the CPU reference (lumorphia/prismtone#184)", async ({
+    page,
+  }) => {
     await openEditorWithImage(page);
     const recipe = spatialRecipe({ clarity: 100 });
     const point = { x: 95, y: 50 };
@@ -317,12 +341,12 @@ test.describe("editor", () => {
     expectClose(out.pixels[0]!, spatialCpu(recipe, point), 4);
   });
 
-  test("the brush tool paints and erases on the canvas, one history step per stroke (#109)", async ({
+  test("the brush tool paints and erases on the canvas, one history step per stroke (lumorphia/prismtone#109)", async ({
     page,
   }) => {
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
-    // 手動の流れ: ブラシを足してから装備強調のプリセット (何も選んでいないときの「装備強調」はタップで切る、#177)
+    // 手動の流れ: ブラシを足してから装備強調のプリセット (何も選んでいないときの「装備強調」はタップで切る、lumorphia/prismtone#177)
     await page.getByTestId("local-add-brush").click();
     await page.getByRole("button", { name: "装備強調", exact: true }).click();
     await expect(page.getByTestId("local-list")).toContainText("装備強調 (ブラシ)");
@@ -348,11 +372,11 @@ test.describe("editor", () => {
     const view = await page.evaluate(() =>
       (
         window as Window & {
-          __prismtoneEditor?: {
+          __lumorphiaEditor?: {
             viewRect: () => { x: number; y: number; width: number; height: number };
           };
         }
-      ).__prismtoneEditor!.viewRect(),
+      ).__lumorphiaEditor!.viewRect(),
     );
     const uv = {
       x: (x0 + 30 - host.x - view.x) / view.width,
@@ -363,9 +387,9 @@ test.describe("editor", () => {
         (p) =>
           (
             window as Window & {
-              __prismtoneEditor?: { previewPixels: (q: { x: number; y: number }[]) => number[][] };
+              __lumorphiaEditor?: { previewPixels: (q: { x: number; y: number }[]) => number[][] };
             }
-          ).__prismtoneEditor!.previewPixels([p])[0]!,
+          ).__lumorphiaEditor!.previewPixels([p])[0]!,
         uv,
       );
     const exposure = page.getByTestId("local-sliders").getByLabel("露光量");
@@ -393,14 +417,12 @@ test.describe("editor", () => {
     await expect(page.getByTestId("history-last")).toContainText("ブラシ");
   });
 
-  test("the local panel adds an ellipse, drags it, undoes, hides, and survives a redo of the export (#109)", async ({
+  test("the local panel adds an ellipse, drags it, undoes, hides, and survives reopening the draft (lumorphia/prismtone#109)", async ({
     page,
   }) => {
-    // 「投稿へ」から戻ってくる導線を使うのでログインしておく (MiAuth の共有の利用者は使わない。並列で走るため)
-    await devLogin(page, "editor_tester");
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
-    // 手動の流れ: 円形を足してから瞳強調のプリセットを当てる (何も選んでいないときの「瞳強調」は顔の自動選択、#176)
+    // 手動の流れ: 円形を足してから瞳強調のプリセットを当てる (何も選んでいないときの「瞳強調」は顔の自動選択、lumorphia/prismtone#176)
     await page.getByTestId("local-add-ellipse").click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
     await page.getByRole("button", { name: "瞳強調", exact: true }).click();
@@ -449,10 +471,9 @@ test.describe("editor", () => {
     await page.getByRole("button", { name: "表示中" }).click();
     await expect(page.getByTestId("local-list")).toContainText("非表示");
 
-    // 投稿へ → 現像をやり直す で戻っても部分補正が残っている (下書きの復元、v2 のレシピ)
-    await continueToPostForm(page);
-    await page.getByTestId("pending-image-redo-0").click();
-    await page.waitForURL(/\/edit(\?|$)/);
+    // 下書きから開き直しても部分補正が残っている (下書きの復元、v2 のレシピ)。prismtone では「投稿へ → 現像をやり直す」の導線
+    await reopenDraft(page);
+    await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
     await page.getByRole("tab", { name: "部分補正" }).click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(1);
     await expect(page.getByTestId("local-list")).toContainText("非表示");
@@ -471,11 +492,11 @@ test.describe("editor", () => {
       page.evaluate(() =>
         (
           window as Window & {
-            __prismtoneEditor?: {
+            __lumorphiaEditor?: {
               viewRect: () => { x: number; y: number; scale: number; width: number };
             };
           }
-        ).__prismtoneEditor!.viewRect(),
+        ).__lumorphiaEditor!.viewRect(),
       );
     const fit = await viewRect();
     await expect(page.getByTestId("zoom-percent")).toHaveText(`${Math.round(fit.scale * 100)}%`);
@@ -561,8 +582,8 @@ test.describe("editor", () => {
     const scaleBefore = await page.evaluate(
       () =>
         (
-          window as Window & { __prismtoneEditor?: { viewRect: () => { scale: number } } }
-        ).__prismtoneEditor!.viewRect().scale,
+          window as Window & { __lumorphiaEditor?: { viewRect: () => { scale: number } } }
+        ).__lumorphiaEditor!.viewRect().scale,
     );
     await page.evaluate(() => {
       const host = document.querySelector('[data-testid="canvas-host"]') as HTMLElement;
@@ -592,8 +613,8 @@ test.describe("editor", () => {
     const scaleAfter = await page.evaluate(
       () =>
         (
-          window as Window & { __prismtoneEditor?: { viewRect: () => { scale: number } } }
-        ).__prismtoneEditor!.viewRect().scale,
+          window as Window & { __lumorphiaEditor?: { viewRect: () => { scale: number } } }
+        ).__lumorphiaEditor!.viewRect().scale,
     );
     expect(scaleAfter).toBeGreaterThan(scaleBefore);
     // ストロークは履歴に積まれていない
@@ -613,8 +634,8 @@ test.describe("editor", () => {
     const host = await page.getByTestId("canvas-host").boundingBox();
     const view = await page.evaluate(() =>
       (
-        window as Window & { __prismtoneEditor?: { viewRect: () => { width: number } } }
-      ).__prismtoneEditor!.viewRect(),
+        window as Window & { __lumorphiaEditor?: { viewRect: () => { width: number } } }
+      ).__lumorphiaEditor!.viewRect(),
     );
     expect(view.width).toBeLessThanOrEqual(host!.width);
     expect(view.width).toBeGreaterThan(host!.width * 0.9);
@@ -625,9 +646,9 @@ test.describe("editor", () => {
   }) => {
     // 3000x2000 はプレビューで 2048 に縮む。縮小した合成の段でも画像全体が描かれ、右下の部分補正も効く
     await page.addInitScript(() => {
-      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+      (window as Window & { __LUMORPHIA_E2E__?: boolean }).__LUMORPHIA_E2E__ = true;
     });
-    await page.goto("/edit");
+    await page.goto("/");
     const png = await page.evaluate(() => {
       const c = document.createElement("canvas");
       c.width = 3000;
@@ -644,7 +665,7 @@ test.describe("editor", () => {
     });
     await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
     await page.waitForFunction(() =>
-      Boolean((window as Window & { __prismtoneEditor?: unknown }).__prismtoneEditor),
+      Boolean((window as Window & { __lumorphiaEditor?: unknown }).__lumorphiaEditor),
     );
     // 右下 (0.9, 0.9) に露光 +2 の円形マスク
     await page.getByRole("tab", { name: "部分補正" }).click();
@@ -653,11 +674,11 @@ test.describe("editor", () => {
     const view = await page.evaluate(() =>
       (
         window as Window & {
-          __prismtoneEditor?: {
+          __lumorphiaEditor?: {
             viewRect: () => { x: number; y: number; width: number; height: number };
           };
         }
-      ).__prismtoneEditor!.viewRect(),
+      ).__lumorphiaEditor!.viewRect(),
     );
     const host = (await page.getByTestId("canvas-host").boundingBox())!;
     const from = (await move.boundingBox())!;
@@ -675,9 +696,9 @@ test.describe("editor", () => {
     const px = await page.evaluate(() =>
       (
         window as Window & {
-          __prismtoneEditor?: { previewPixels: (p: { x: number; y: number }[]) => number[][] };
+          __lumorphiaEditor?: { previewPixels: (p: { x: number; y: number }[]) => number[][] };
         }
-      ).__prismtoneEditor!.previewPixels([
+      ).__lumorphiaEditor!.previewPixels([
         { x: 0.9, y: 0.9 },
         { x: 0.1, y: 0.1 },
         { x: 0.98, y: 0.5 },
@@ -691,8 +712,8 @@ test.describe("editor", () => {
     // 書き出し (原寸 3000x2000) も四隅まで描かれ、マスクの中心は明るい
     const recipe = await page.evaluate(() =>
       (
-        window as Window & { __prismtoneEditor?: { currentRecipe: () => EditRecipe } }
-      ).__prismtoneEditor!.currentRecipe(),
+        window as Window & { __lumorphiaEditor?: { currentRecipe: () => EditRecipe } }
+      ).__lumorphiaEditor!.currentRecipe(),
     );
     const out = await exportPixels(page, recipe, [
       { x: 10, y: 10 },
@@ -775,32 +796,32 @@ test.describe("editor", () => {
     const download = page.waitForEvent("download");
     await page.getByTestId("save").click();
     const d = await download;
-    expect(d.suggestedFilename()).toMatch(/^test-prismtone\.(webp|jpg)$/);
+    expect(d.suggestedFilename()).toMatch(/^test\.(webp|jpg)$/);
   });
 
   test("rejects non-image files with a message", async ({ page }) => {
-    await page.goto("/edit");
+    await page.goto("/");
     await page
       .getByTestId("file-input")
       .setInputFiles({ name: "x.png", mimeType: "image/png", buffer: Buffer.from("not a png") });
     await expect(page.getByRole("alert")).toContainText("PNG または JPEG");
   });
 
-  test("瞳強調の選択中でも美肌を自動選択で追加でき、範囲をブラシで直せる (#176, #210)", async ({
+  test("瞳強調の選択中でも美肌を自動選択で追加でき、範囲をブラシで直せる (lumorphia/prismtone#176, lumorphia/prismtone#210)", async ({
     page,
   }) => {
     // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
-    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    // 遅い CI では読み込みだけで 20 秒近くかかる (lumorphia/prismtone#348 の CI で 60 秒を使い切った)
     test.setTimeout(180_000);
     await page.addInitScript(() => {
-      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+      (window as Window & { __LUMORPHIA_E2E__?: boolean }).__LUMORPHIA_E2E__ = true;
     });
     // 画像を外に送らないこと: このテストの間、自分のオリジン以外へのリクエストが無い
     const foreign: string[] = [];
     page.on("request", (req) => {
       if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(req.url())) foreign.push(req.url());
     });
-    await page.goto("/edit");
+    await page.goto("/");
     await page
       .getByTestId("file-input")
       .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
@@ -837,11 +858,11 @@ test.describe("editor", () => {
     expect(foreign).toEqual([]);
   });
 
-  test("when no face is found the panel says so and manual masks still work (#176)", async ({
+  test("when no face is found the panel says so and manual masks still work (lumorphia/prismtone#176)", async ({
     page,
   }) => {
     // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
-    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    // 遅い CI では読み込みだけで 20 秒近くかかる (lumorphia/prismtone#348 の CI で 60 秒を使い切った)
     test.setTimeout(180_000);
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "部分補正" }).click();
@@ -855,7 +876,7 @@ test.describe("editor", () => {
     await expect(page.getByTestId("local-notice")).toHaveCount(0);
   });
 
-  test("装備強調 cuts out the tapped gear with SAM, switches granularity, and キャラクター / 背景 select the person (#177)", async ({
+  test("装備強調 cuts out the tapped gear with SAM, switches granularity, and キャラクター / 背景 select the person (lumorphia/prismtone#177)", async ({
     page,
   }) => {
     test.setTimeout(180_000);
@@ -863,13 +884,13 @@ test.describe("editor", () => {
     page.on("request", (req) => {
       if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(req.url())) foreign.push(req.url());
     });
-    await page.goto("/edit");
+    await page.goto("/");
     await page
       .getByTestId("file-input")
       .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
     await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled();
     await page.getByRole("tab", { name: "部分補正" }).click();
-    // /edit は COOP + COEP credentialless で cross-origin isolated (#182)。SharedArrayBuffer が使えて ORT がマルチスレッドになる
+    // ページは COOP + COEP credentialless で cross-origin isolated (lumorphia/prismtone#182)。SharedArrayBuffer が使えて ORT がマルチスレッドになる
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
 
     // 装備強調: モデルの読み込みと埋め込み (マルチスレッドの WASM で 3〜4 秒) のあとタップ待ちになる
@@ -919,14 +940,14 @@ test.describe("editor", () => {
     expect(foreign).toEqual([]);
   });
 
-  test("人物補正 detects the person, applies a preset as five grouped adjustments, scales them, and survives a reload (#175)", async ({
+  test("人物補正 detects the person, applies a preset as five grouped adjustments, scales them, and survives a reload (lumorphia/prismtone#175)", async ({
     page,
   }) => {
     test.setTimeout(180_000);
     await page.addInitScript(() => {
-      (window as Window & { __PRISMTONE_E2E__?: boolean }).__PRISMTONE_E2E__ = true;
+      (window as Window & { __LUMORPHIA_E2E__?: boolean }).__LUMORPHIA_E2E__ = true;
     });
-    await page.goto("/edit");
+    await page.goto("/");
     await page
       .getByTestId("file-input")
       .setInputFiles(new URL("./fixtures/face.jpg", import.meta.url).pathname);
@@ -971,22 +992,7 @@ test.describe("editor", () => {
     await expect(page.getByTestId("portrait-amount")).toBeVisible();
 
     // 下書きを開き直しても 5 件が残り (v3 のレシピが IndexedDB を往復する)、書き出せる
-    const draftId = await page.evaluate(
-      () =>
-        new Promise<string>((resolve, reject) => {
-          const open = indexedDB.open("prismtone-editor");
-          open.onerror = () => reject(open.error);
-          open.onsuccess = () => {
-            const req = open.result.transaction("kv").objectStore("kv").getAllKeys();
-            req.onsuccess = () => {
-              const key = (req.result as string[]).find((k) => k.startsWith("draft:"));
-              if (!key) reject(new Error("no draft"));
-              else resolve(key.slice("draft:".length));
-            };
-          };
-        }),
-    );
-    await page.goto(`/edit?draft=${draftId}`);
+    await reopenDraft(page);
     await expect(page.getByRole("button", { name: "端末に保存" })).toBeEnabled({ timeout: 30_000 });
     await page.getByRole("tab", { name: "部分補正" }).click();
     await expect(page.getByTestId("local-list").getByRole("listitem")).toHaveCount(5);
@@ -995,11 +1001,11 @@ test.describe("editor", () => {
     expect((await download).suggestedFilename()).toMatch(/\.(webp|jpe?g|png)$/);
   });
 
-  test("人物補正 says so when no face is found and points to the manual tools (#175)", async ({
+  test("人物補正 says so when no face is found and points to the manual tools (lumorphia/prismtone#175)", async ({
     page,
   }) => {
     // 顔の認識のモデル (WASM) の読み込みを最大 60 秒待つので、テスト全体の持ち時間 (既定 60 秒) を延ばす。
-    // 遅い CI では読み込みだけで 20 秒近くかかる (#348 の CI で 60 秒を使い切った)
+    // 遅い CI では読み込みだけで 20 秒近くかかる (lumorphia/prismtone#348 の CI で 60 秒を使い切った)
     test.setTimeout(180_000);
     await openEditorWithImage(page);
     await page.getByRole("tab", { name: "人物補正" }).click();

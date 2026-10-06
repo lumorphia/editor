@@ -9,8 +9,8 @@ lumorphia/editor: ブラウザで動く写真の現像エディタ。描画 (Pix
 packages/editor-recipe  @lumorphia/editor-recipe  編集レシピ (zod)。ブラウザでもサーバーでも動く
 packages/editor-engine  @lumorphia/editor-engine  状態、描画、推論 (Worker)、下書き、CLI editor-models
 packages/editor-react   @lumorphia/editor-react   UI。<Editor host={...} />
-apps/web                単独アプリ (E2E の土台を兼ねる)
-e2e/                    E2E (prismtone から移した。apps/web を土台にして回す: #3)
+apps/web                単独アプリ (Vite + React。server/serve.ts が COOP / COEP / CSP 付きで配る。E2E の土台を兼ねる)
+e2e/                    E2E (apps/web に対して Playwright で回す。e2e/README.md)
 docs/design/            設計 (edit-recipe.md: レシピ、editor.md: 画面・描画・推論・テスト)
 docs/adr/               設計判断 (README.md に一覧と prismtone の番号との対応)
 ```
@@ -67,5 +67,7 @@ pnpm test            # 単体テスト (ビルド不要)
 pnpm test:coverage   # カバレッジ付き
 pnpm typecheck
 pnpm lint && pnpm format:check
-pnpm build           # 各パッケージを dist に
+pnpm build:packages  # 各パッケージを dist に
+pnpm e2e             # パッケージと apps/web をビルドして E2E
+pnpm --filter @lumorphia/editor-web dev  # 単独アプリの dev サーバー
 ```
