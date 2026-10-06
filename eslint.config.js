@@ -75,7 +75,16 @@ const react = {
 
 export default tseslint.config(
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/coverage/**",
+      "test-results/**",
+      "playwright-report/**",
+      // 認識のモデルと WASM (editor-models fetch が置く。git には入らない)
+      "apps/*/models/**",
+    ],
   },
   ...tseslint.configs.recommended,
   {
