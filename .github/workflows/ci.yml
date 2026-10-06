@@ -29,6 +29,43 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test:coverage
 
+  # 単独アプリ (apps/web) に対して現像の E2E を回す。WebGL は SwiftShader。公開リポジトリで時間の制約が無く、
+  # 30 秒ほどで終わるので、すべての PR で回す
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 認識のモデル (約 60 MB) は一覧 (bin/assets.ts) が変わらない限り同じ。毎回ダウンロードしない
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/models
+          key: models-${{ hashFiles('packages/editor-engine/bin/assets.ts', 'pnpm-lock.yaml') }}
+      # Chromium 本体は Playwright の版でキャッシュし、OS のライブラリだけ毎回入れる
+      - id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+      - run: pnpm e2e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
+
   # シークレットの混入と高リスクの脆弱性。audit は警告に留める
   security:
     runs-on: ubuntu-latest
