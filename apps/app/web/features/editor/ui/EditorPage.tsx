@@ -4,7 +4,7 @@ import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@prismtone/shared/recipe"
 import { activePortraitGroup, editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
-import { addPendingExport, loadDraft, saveDraft } from "../drafts.ts";
+import { addPendingExport, editorDrafts } from "../../post-form/work-in-progress.ts";
 import { sendEditorEvent } from "../usage.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
@@ -373,7 +373,7 @@ export function EditorPage() {
   useEffect(() => {
     if (!state.source || !state.draftId) return;
     const { source, draftId } = state;
-    void saveDraft({
+    void editorDrafts.save({
       id: draftId,
       name: source.name,
       blob: source.blob,
@@ -405,7 +405,7 @@ export function EditorPage() {
   useEffect(() => {
     if (!requestedDraft) return;
     let cancelled = false;
-    void loadDraft(requestedDraft).then((draft) => {
+    void editorDrafts.load(requestedDraft).then((draft) => {
       if (cancelled) return;
       // 1 回きり。リロードで再適用されないよう URL から外す
       setSearchParams(

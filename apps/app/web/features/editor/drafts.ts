@@ -4,6 +4,7 @@ import { migrateRecipe, type EditRecipe } from "@prismtone/shared/recipe";
 /**
  * 端末内の下書き (docs/design/04 §6, 03 §9)。原本 Blob とレシピを IndexedDB に置く。
  * 最大 5 件、古いものから消す。別端末には同期しない。
+ * どの DB に置くか、どの下書きを消さずに残すかはホスト (prismtone なら投稿導線) が決める
  */
 export type Draft = {
   id: string;
@@ -13,20 +14,29 @@ export type Draft = {
   updatedAt: number;
 };
 
-/** 投稿導線へ渡す書き出し結果。 */
-export type PendingExport = {
-  draftId: string;
-  blob: Blob;
-  recipe: EditRecipe;
-  createdAt: number;
+export const DRAFT_LIMIT = 5;
+const DRAFT_PREFIX = "draft:";
+
+/** 下書きを置くキーバリュー。IndexedDB (idb-keyval) か、テストではメモリ */
+export type DraftKeyValue = {
+  get<T>(key: string): Promise<T | undefined>;
+  set(key: string, value: unknown): Promise<void>;
+  del(key: string): Promise<void>;
+  keys(): Promise<IDBValidKey[]>;
 };
 
-export const DRAFT_LIMIT = 5;
-export const PENDING_EXPORT_LIMIT = 5;
-const PENDING_KEY = "pending";
-const POST_FORM_KEY = "post-form";
+export type DraftStore = {
+  save(draft: Draft): Promise<void>;
+  load(id: string): Promise<Draft | undefined>;
+  /** 新しい順 */
+  list(): Promise<Draft[]>;
+  remove(id: string): Promise<void>;
+};
 
-const store = () => createStore("prismtone-editor", "kv");
+export type DraftStoreOptions = {
+  /** 上限を超えても消さない下書き。投稿画像として残っているもの (#64) など */
+  protectedIds?: () => Promise<readonly string[]>;
+};
 
 /**
  * IndexedDB に残っているレシピを現行の版に上げる (docs/design/04 §5)。
@@ -47,33 +57,9 @@ function upgradeDraft(draft: Draft | undefined): Draft | undefined {
   return recipe ? { ...draft, recipe } : undefined;
 }
 
-function upgradePending(items: readonly PendingExport[]): PendingExport[] {
-  return items.flatMap((item) => {
-    const recipe = upgradeStoredRecipe(item.recipe);
-    return recipe ? [{ ...item, recipe }] : [];
-  });
-}
-
-export async function saveDraft(draft: Draft): Promise<void> {
-  const s = store();
-  await set(`draft:${draft.id}`, draft, s);
-  const all = (await keys(s)).filter(
-    (k): k is string => typeof k === "string" && k.startsWith("draft:"),
-  );
-  if (all.length > DRAFT_LIMIT) {
-    const drafts = await Promise.all(all.map((k) => get<Draft>(k, s)));
-    const pending = await listPendingExports();
-    for (const d of selectStaleDrafts(
-      drafts.filter((d): d is Draft => Boolean(d)),
-      pending.map((p) => p.draftId),
-    ))
-      await del(`draft:${d.id}`, s);
-  }
-}
-
 /**
- * 上限を超えた分だけ古い順に消す候補。投稿画像として残っている下書きは「現像をやり直す」(#64) の元なので消さない。
- * 保護した分で上限を超えることはある (両方の上限が 5 なので最大 5 件残る)。
+ * 上限を超えた分だけ古い順に消す候補。保護された下書きは消さない。
+ * 保護した分で上限を超えることはある (prismtone では両方の上限が 5 なので最大 5 件残る)。
  */
 export function selectStaleDrafts(
   drafts: readonly Draft[],
@@ -88,161 +74,47 @@ export function selectStaleDrafts(
     .slice(0, excess);
 }
 
-export async function loadDraft(id: string): Promise<Draft | undefined> {
-  return upgradeDraft(await get<Draft>(`draft:${id}`, store()));
+export function createDraftStore(kv: DraftKeyValue, options: DraftStoreOptions = {}): DraftStore {
+  const draftKeys = async () =>
+    (await kv.keys()).filter(
+      (k): k is string => typeof k === "string" && k.startsWith(DRAFT_PREFIX),
+    );
+
+  return {
+    async save(draft) {
+      await kv.set(`${DRAFT_PREFIX}${draft.id}`, draft);
+      const all = await draftKeys();
+      if (all.length <= DRAFT_LIMIT) return;
+      const drafts = await Promise.all(all.map((k) => kv.get<Draft>(k)));
+      const protectedIds = (await options.protectedIds?.()) ?? [];
+      for (const d of selectStaleDrafts(
+        drafts.filter((d): d is Draft => Boolean(d)),
+        protectedIds,
+      ))
+        await kv.del(`${DRAFT_PREFIX}${d.id}`);
+    },
+    async load(id) {
+      return upgradeDraft(await kv.get<Draft>(`${DRAFT_PREFIX}${id}`));
+    },
+    async list() {
+      const drafts = await Promise.all(
+        (await draftKeys()).map((k) => kv.get<Draft>(k).then(upgradeDraft)),
+      );
+      return drafts.filter((d): d is Draft => Boolean(d)).sort((a, b) => b.updatedAt - a.updatedAt);
+    },
+    async remove(id) {
+      await kv.del(`${DRAFT_PREFIX}${id}`);
+    },
+  };
 }
 
-export async function listDrafts(): Promise<Draft[]> {
-  const s = store();
-  const all = (await keys(s)).filter(
-    (k): k is string => typeof k === "string" && k.startsWith("draft:"),
-  );
-  const drafts = await Promise.all(all.map((k) => get<Draft>(k, s).then(upgradeDraft)));
-  return drafts.filter((d): d is Draft => Boolean(d)).sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export async function deleteDraft(id: string): Promise<void> {
-  await del(`draft:${id}`, store());
-}
-
-export function addToPendingExports(
-  current: readonly PendingExport[],
-  next: PendingExport,
-): PendingExport[] {
-  const existing = current.findIndex((item) => item.draftId === next.draftId);
-  if (existing >= 0) return current.map((item, index) => (index === existing ? next : item));
-  if (current.length >= PENDING_EXPORT_LIMIT) {
-    throw new Error(`投稿画像は ${PENDING_EXPORT_LIMIT} 枚までです`);
-  }
-  return [...current, next];
-}
-
-/** 旧版の単一オブジェクトも配列へ読み替える。 */
-export async function listPendingExports(): Promise<PendingExport[]> {
-  const s = store();
-  const value = await get<PendingExport | PendingExport[]>(PENDING_KEY, s);
-  if (!value) return [];
-  return upgradePending(Array.isArray(value) ? value.slice(0, PENDING_EXPORT_LIMIT) : [value]);
-}
-
-export async function setPendingExports(items: readonly PendingExport[]): Promise<void> {
-  if (items.length > PENDING_EXPORT_LIMIT) {
-    throw new Error(`投稿画像は ${PENDING_EXPORT_LIMIT} 枚までです`);
-  }
-  const s = store();
-  if (items.length === 0) await del(PENDING_KEY, s);
-  else await set(PENDING_KEY, [...items], s);
-}
-
-export async function addPendingExport(next: PendingExport): Promise<void> {
-  await setPendingExports(addToPendingExports(await listPendingExports(), next));
-  // 画像が変わったので、下書きから開いた作業中も未保存扱いにする
-  const form = await loadPostFormDraft();
-  if (form && !form.dirty) await savePostFormDraft({ ...form, dirty: true });
-}
-
-export async function clearPendingExports(): Promise<void> {
-  await del(PENDING_KEY, store());
-}
-
-/** 投稿設定の入力内容。装備は ItemSummary ごと保存する (structured clone 可) */
-export type PostFormFields = {
-  title: string;
-  description: string;
-  tags: string;
-  visibility: "public" | "unlisted" | "private";
-  characterId: string | null;
-  itemsVisibility: "public" | "private";
-  /** コメントを受け付けるか (#143)。古い下書きには無い */
-  commentsEnabled?: boolean;
-  /** 投稿者を非公開で投稿するか (#235)。古い下書きには無い */
-  authorHidden?: boolean;
-  equipment: unknown[];
-  /** フェイスアクセサリー (#222)。FacewearSummary ごと保存する。古い下書きには無い */
-  facewear?: unknown;
-  profile: { job: string | null; race: string | null; clan: string | null; gender: string | null };
-};
-
-/**
- * 作業中の投稿設定 (#57)。書き出した画像 (pending) と同じ場所に置き、/edit との往復で消えないようにする。
- * 投稿の完了、「すべて破棄」(#58)、投稿設定からの離脱で消す。
- * draftId は下書き (PostDraft) から開いたときの元。投稿が完了したらその下書きも消す
- */
-export type PostFormDraft = PostFormFields & {
-  draftId?: string | null;
-  /** 下書きに保存してから変えたものがあるか。画像の追加・やり直しでも立てる */
-  dirty?: boolean;
-  updatedAt: number;
-};
-
-export async function loadPostFormDraft(): Promise<PostFormDraft | undefined> {
-  return get<PostFormDraft>(POST_FORM_KEY, store());
-}
-
-export async function savePostFormDraft(draft: PostFormDraft): Promise<void> {
-  await set(POST_FORM_KEY, draft, store());
-}
-
-export async function clearPostFormDraft(): Promise<void> {
-  await del(POST_FORM_KEY, store());
-}
-
-/**
- * 保存した下書き (docs/design/08 §4)。作業中の画像と入力内容のスナップショット。
- * /drafts に一覧し、開くと作業中に読み込む。最大 10 件
- */
-export type PostDraft = PostFormFields & {
-  id: string;
-  images: PendingExport[];
-  updatedAt: number;
-};
-
-export const POST_DRAFT_LIMIT = 10;
-const POST_DRAFT_PREFIX = "postDraft:";
-
-export async function listPostDrafts(): Promise<PostDraft[]> {
-  const s = store();
-  const all = (await keys(s)).filter(
-    (k): k is string => typeof k === "string" && k.startsWith(POST_DRAFT_PREFIX),
-  );
-  const drafts = await Promise.all(all.map((k) => get<PostDraft>(k, s).then(upgradePostDraft)));
-  return drafts.filter((d): d is PostDraft => Boolean(d)).sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export async function loadPostDraft(id: string): Promise<PostDraft | undefined> {
-  return upgradePostDraft(await get<PostDraft>(`${POST_DRAFT_PREFIX}${id}`, store()));
-}
-
-function upgradePostDraft(draft: PostDraft | undefined): PostDraft | undefined {
-  return draft ? { ...draft, images: upgradePending(draft.images) } : undefined;
-}
-
-/** 同じ id は上書き。新規で上限を超えるなら投げる (古いものを勝手に消さない) */
-export async function savePostDraft(draft: PostDraft): Promise<void> {
-  const s = store();
-  const existing = await get<PostDraft>(`${POST_DRAFT_PREFIX}${draft.id}`, s);
-  if (!existing) {
-    const count = (await keys(s)).filter(
-      (k) => typeof k === "string" && k.startsWith(POST_DRAFT_PREFIX),
-    ).length;
-    if (count >= POST_DRAFT_LIMIT)
-      throw new Error(`下書きは ${POST_DRAFT_LIMIT} 件までです。いらないものを消してください`);
-  }
-  await set(`${POST_DRAFT_PREFIX}${draft.id}`, draft, s);
-}
-
-export async function deletePostDraft(id: string): Promise<void> {
-  await del(`${POST_DRAFT_PREFIX}${id}`, store());
-}
-
-/** 下書きを作業中に読み込む。画像は複製し、元の下書きは触らない */
-export async function openPostDraft(draft: PostDraft): Promise<void> {
-  const { id, images, updatedAt: _updatedAt, ...fields } = draft;
-  await setPendingExports(images);
-  await savePostFormDraft({ ...fields, draftId: id, dirty: false, updatedAt: Date.now() });
-}
-
-/** 作業中を全部消す (投稿完了、すべて破棄、離脱) */
-export async function clearWorkInProgress(): Promise<void> {
-  await Promise.all([clearPendingExports(), clearPostFormDraft()]);
+/** idb-keyval の 1 ストアをキーバリューとして使う */
+export function idbKeyValue(dbName: string, storeName: string): DraftKeyValue {
+  const store = () => createStore(dbName, storeName);
+  return {
+    get: (key) => get(key, store()),
+    set: (key, value) => set(key, value, store()),
+    del: (key) => del(key, store()),
+    keys: () => keys(store()),
+  };
 }
