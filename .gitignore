@@ -1,0 +1,12 @@
+*:Zone.Identifier
+.env
+.env.*
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+test-results/
+playwright-report/
+# ブラウザ内の認識のモデルと WASM (editor-models fetch が揃える。git には入れない)
+apps/*/models/

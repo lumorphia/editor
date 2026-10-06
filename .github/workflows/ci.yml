@@ -1,0 +1,61 @@
+name: ci
+
+# 検査は PR でだけ回す。develop / main への push (= マージ) では、PR で確かめた中身を回し直さない。
+# 公開リポジトリなので Actions の時間の制約は無いが、同じ中身を 2 回回す意味が無い
+on:
+  pull_request:
+
+# 同じ PR への連続 push で古い run を取り消す
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test:coverage
+
+  # シークレットの混入と高リスクの脆弱性。audit は警告に留める
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # gitleaks の本体 (CLI、MIT) を直接動かす。gitleaks-action は organization のリポジトリではライセンスキーが要る。
+      # 版とチェックサムは公式の gitleaks_<版>_checksums.txt から。lumorphia/prismtone と同じ版
+      - name: gitleaks (履歴全体)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -fsSLo /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --no-banner --verbose .
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 失敗にすると、上流の修正を待つあいだ全ての PR が止まる。結果は Actions の注釈で見て、Renovate で上げる
+      - name: pnpm audit (high 以上。警告)
+        run: pnpm audit --audit-level=high --prod
+        continue-on-error: true
