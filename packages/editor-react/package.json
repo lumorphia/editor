@@ -1,6 +1,6 @@
 {
   "name": "@lumorphia/editor-react",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "現像の UI。<Editor host={...} /> でホストに組み込む",
   "license": "AGPL-3.0-only",
   "repository": {

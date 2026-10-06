@@ -1,6 +1,6 @@
 {
   "name": "@lumorphia/editor-recipe",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "現像の編集レシピ (zod)。ブラウザとサーバーの両方で動く",
   "license": "AGPL-3.0-only",
   "repository": {
