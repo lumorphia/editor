@@ -35,3 +35,24 @@
 ## References
 
 - ADR-0005、lumorphia/prismtone ADR-0035、`apps/web/server/static.ts`、`apps/web/vite.config.ts`
+
+## 追記 (2026-10-06): engine の依存も束ねる
+
+`optimizeDeps.exclude` で engine を外すと、engine の中の import は Vite の依存の最適化が辿らない。engine がブラウザで使う依存を束ねないと、dev で pixi.js がそのまま配られ、CommonJS の eventemitter3 を ESM として読めずに描画が立ち上がらない (「WebGL が無効です」と出る)。本番ビルドでは起きないので、本番ビルドの E2E では見つからない。
+
+ホストは、外した engine の依存を「engine > 依存」の形で `optimizeDeps.include` に足す。
+
+```ts
+optimizeDeps: {
+  include: [
+    "@mediapipe/tasks-vision",
+    "@huggingface/transformers",
+    "@lumorphia/editor-engine > pixi.js",
+    "@lumorphia/editor-engine > pixi.js/unsafe-eval",
+    "@lumorphia/editor-engine > idb-keyval",
+  ],
+  exclude: ["@lumorphia/editor-engine"],
+},
+```
+
+engine が依存を増やしたら、ホストも足す。lumorphia/prismtone は、公開された engine の dist が import する依存が全部入っていることをテストで確かめている (`apps/app/vite-deps.test.ts`、lumorphia/prismtone#370)。このリポジトリの apps/web は engine を workspace から使う (`node_modules` の外にあり、最適化が辿る) ので、この問題は起きない。
