@@ -32,3 +32,9 @@
 ## References
 
 - ADR-0003、lumorphia/prismtone ADR-0009
+
+## 追記 (2026-10-06): 最初の版は 1.0.0
+
+最初のリリースは 0.1.0 のつもりだったが、release-please の `initial-version` を設定しておらず、前のリリースが無いときの既定の 1.0.0 になった (`.release-please-manifest.json` の `0.0.0` は前のリリースとして扱われない)。公開した 1.0.0 はそのまま使う (使っているのは prismtone だけで、実害は無い)。
+
+そのため、上の「0.x のあいだは minor を major として扱う」は当てはまらない。以後は通常の semver で、既存の版を読めなくする変更は major (2.0.0) にする。
