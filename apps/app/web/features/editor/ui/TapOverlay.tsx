@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import type { GeometryV1 } from "@lumorphia/editor-recipe";
 import { canvasToImageUv, type Point } from "../mask-math.ts";
 import type { Size } from "../render/geometry.ts";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type View = { x: number; y: number; width: number; height: number; scale: number };
 
@@ -23,7 +23,7 @@ type Props = {
  * 画像の外をタップしたら無視する
  */
 export function TapOverlay({ view, source, geometry, hint, onTap, onCancel }: Props) {
-  const { t } = useI18n();
+  const { t } = useEditorI18n();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();

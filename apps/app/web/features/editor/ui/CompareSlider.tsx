@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type View = { x: number; y: number; width: number; height: number };
 
@@ -16,7 +16,7 @@ export function CompareSlider({
   position: number;
   onChange: (position: number) => void;
 }) {
-  const { t } = useI18n();
+  const { t } = useEditorI18n();
   const dragging = useRef(false);
   const toPosition = (clientX: number, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();

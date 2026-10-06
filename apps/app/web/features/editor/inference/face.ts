@@ -33,7 +33,7 @@ export function resetFaceWorker(): void {
 
 export async function detectFaces(
   bitmap: ImageBitmap,
-  options: { onProgress?: (p: Progress) => void; signal?: AbortSignal } = {},
+  options: { modelBaseUrl: string; onProgress?: (p: Progress) => void; signal?: AbortSignal },
 ): Promise<FaceResult[]> {
   const w = getWorker();
   const id = ++seq;
@@ -68,7 +68,7 @@ export async function detectFaces(
     w.addEventListener("message", onMessage);
     w.addEventListener("error", onError);
     options.signal?.addEventListener("abort", onAbort);
-    const req: FaceRequest = { id, bitmap: copy };
+    const req: FaceRequest = { id, bitmap: copy, modelBaseUrl: options.modelBaseUrl };
     w.postMessage(req, [copy]);
   });
 }

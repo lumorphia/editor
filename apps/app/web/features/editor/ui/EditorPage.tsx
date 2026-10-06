@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
 import { DEFAULT_ELLIPSE_MASK, type EditRecipe } from "@lumorphia/editor-recipe";
 import { activePortraitGroup, editorReducer, initialEditorState } from "../state.ts";
 import { canRedo, canUndo, redoLabel, undoLabel } from "../history.ts";
 import { ImageLoadError, loadImageFile, type LoadedImage } from "../load-image.ts";
-import { addPendingExport, editorDrafts } from "../../post-form/work-in-progress.ts";
-import { sendEditorEvent } from "../usage.ts";
+import { downloadName, type EditorDestination, type EditorHost } from "../host.ts";
+import { DEFAULT_MODEL_BASE_URL } from "../inference/model-paths.ts";
 import { aspectRatio, centeredCrop } from "../render/geometry.ts";
 import type { EditorRenderer } from "../render/editor-renderer.ts";
 import { AdjustPanel } from "./AdjustPanel.tsx";
@@ -37,7 +36,7 @@ import {
   type PortraitPresetId,
 } from "@lumorphia/editor-recipe";
 import { CompareSlider } from "./CompareSlider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { EditorI18nProvider, useEditorI18n } from "./EditorI18n.tsx";
 
 const ERROR_TEXT: Record<string, string> = {
   too_large: "30MB を超える画像は読み込めません。",
@@ -51,11 +50,14 @@ const tabBtn =
 const toolBtn =
   "rounded border border-line-soft px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent";
 
-/** Playwright からレシピ適用結果の画素を読むためのフック。E2E フラグがあるときだけ露出する。 */
-function installTestHook(renderer: EditorRenderer, getRecipe: () => EditRecipe) {
-  const w = window as Window & { __PRISMTONE_E2E__?: boolean; __prismtoneEditor?: unknown };
-  if (!w.__PRISMTONE_E2E__) return;
-  w.__prismtoneEditor = {
+/** Playwright からレシピ適用結果の画素を読むためのフック。ホストが有効にしたときだけ露出する。 */
+function installTestHook(
+  renderer: EditorRenderer,
+  getRecipe: () => EditRecipe,
+  hook: EditorHost["testHook"],
+) {
+  if (!hook?.enabled()) return;
+  (window as unknown as Record<string, unknown>)[hook.globalName] = {
     async exportPixels(recipe: EditRecipe, points: { x: number; y: number }[]) {
       const blob = await renderer.export(recipe, { format: "image/png" });
       const bitmap = await createImageBitmap(blob);
@@ -85,11 +87,19 @@ function installTestHook(renderer: EditorRenderer, getRecipe: () => EditRecipe) 
   };
 }
 
-export function EditorPage() {
-  const { t } = useI18n();
+/** 現像エディタ。ホスト (下書きの置き場所、送り先、計測、表示言語) は外から渡す (ADR-0035) */
+export function Editor({ host }: { host: EditorHost }) {
+  return (
+    <EditorI18nProvider locale={host.locale}>
+      <EditorPage host={host} />
+    </EditorI18nProvider>
+  );
+}
+
+function EditorPage({ host }: { host: EditorHost }) {
+  const { t } = useEditorI18n();
+  const modelBaseUrl = host.inference?.modelBaseUrl ?? DEFAULT_MODEL_BASE_URL;
   const [state, dispatch] = useReducer(editorReducer, initialEditorState);
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const hostRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<EditorRenderer | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -99,7 +109,7 @@ export function EditorPage() {
   useEffect(() => {
     if (openReported.current) return;
     openReported.current = true;
-    sendEditorEvent("open");
+    host.telemetry?.({ type: "open" });
   }, []);
   const [ready, setReady] = useState(false);
 
@@ -112,11 +122,11 @@ export function EditorPage() {
     let disposed = false;
     let renderer: EditorRenderer | null = null;
     (async () => {
-      const host = hostRef.current;
-      if (!host) return;
+      const container = hostRef.current;
+      if (!container) return;
       try {
         const { EditorRenderer } = await import("../render/editor-renderer.ts");
-        renderer = await EditorRenderer.create(host);
+        renderer = await EditorRenderer.create(container);
         if (disposed) {
           renderer.destroy();
           return;
@@ -125,7 +135,7 @@ export function EditorPage() {
         // 置き直し (fit / zoom / resize) はすべてここを通る。オーバーレイの位置の唯一の出どころ
         renderer.onView = setView;
         setReady(true);
-        installTestHook(renderer, () => recipeRef.current);
+        installTestHook(renderer, () => recipeRef.current, host.testHook);
       } catch (e) {
         // 原因を飲み込まない (CSP や WebGL の不調を切り分けられるように)
         console.error("editor renderer failed", e);
@@ -202,6 +212,7 @@ export function EditorPage() {
     try {
       const { detectFaces } = await import("../inference/face.ts");
       const faces = await detectFaces(source.bitmap, {
+        modelBaseUrl,
         onProgress: (progress) =>
           dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
       });
@@ -220,6 +231,7 @@ export function EditorPage() {
     try {
       const { prepareSegmenter } = await import("../inference/segment.ts");
       await prepareSegmenter(source.bitmap, {
+        modelBaseUrl,
         onProgress: (progress) =>
           dispatch({ type: "ui/inference", inference: { status: "loading", progress } }),
       });
@@ -373,7 +385,7 @@ export function EditorPage() {
   useEffect(() => {
     if (!state.source || !state.draftId) return;
     const { source, draftId } = state;
-    void editorDrafts.save({
+    void host.drafts.save({
       id: draftId,
       name: source.name,
       blob: source.blob,
@@ -400,21 +412,16 @@ export function EditorPage() {
     }
   }, []);
 
-  // /edit?draft=<id>: 投稿設定の「現像をやり直す」(#64)。下書きの原本とレシピを開き直し、同じ draftId で書き出す
-  const requestedDraft = searchParams.get("draft");
+  // 開いたときの下書き (prismtone は /edit?draft=<id>、投稿設定の「現像をやり直す」#64)。
+  // 下書きの原本とレシピを開き直し、同じ draftId で書き出す
+  const requestedDraft = host.initialDraftId ?? null;
   useEffect(() => {
     if (!requestedDraft) return;
     let cancelled = false;
-    void editorDrafts.load(requestedDraft).then((draft) => {
+    void host.drafts.load(requestedDraft).then((draft) => {
       if (cancelled) return;
-      // 1 回きり。リロードで再適用されないよう URL から外す
-      setSearchParams(
-        (sp) => {
-          sp.delete("draft");
-          return sp;
-        },
-        { replace: true },
-      );
+      // 1 回きり。リロードで再適用されないよう、ホストが外す
+      host.onInitialDraftConsumed?.();
       if (!draft) {
         dispatch({
           type: "ui/error",
@@ -430,7 +437,7 @@ export function EditorPage() {
     return () => {
       cancelled = true;
     };
-    // openFile は安定、setSearchParams は毎回変わるので依存から外す (react-hooks の lint は入れていない)
+    // openFile は安定、host は毎回変わりうるので依存から外す (react-hooks の lint は入れていない)
   }, [requestedDraft]);
 
   // 画像が後から来た場合 (レンダラ初期化前に読み込んだ) の反映
@@ -455,26 +462,30 @@ export function EditorPage() {
     if (!state.source) return;
     try {
       const blob = await exportBlob(recipe);
-      const ext = blob.type === "image/webp" ? "webp" : "jpg";
-      const base = state.source.name.replace(/\.[^.]+$/, "");
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${base}-prismtone.${ext}`;
+      a.download = downloadName(state.source.name, blob.type, host.download?.fileSuffix ?? "");
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-      sendEditorEvent("save");
+      host.telemetry?.({ type: "save" });
     } catch {
       dispatch({ type: "ui/error", error: t("書き出しに失敗しました。", "Export failed.") });
     }
   };
 
-  const onPost = async () => {
+  const onSend = async (destination: EditorDestination) => {
     if (!state.source || !state.draftId) return;
     try {
       const blob = await exportBlob(recipe);
-      await addPendingExport({ draftId: state.draftId, blob, recipe, createdAt: Date.now() });
-      sendEditorEvent("to_post");
-      void navigate("/edit/post");
+      await destination.send({
+        blob,
+        recipe,
+        original: state.source.blob,
+        sourceName: state.source.name,
+        draftId: state.draftId,
+      });
+      // 送れたときだけ数える (上限で断られたら数えない)。送り先が画面を移しても届くよう、計測は keepalive で送る
+      host.telemetry?.({ type: "send", destinationId: destination.id });
     } catch (error) {
       dispatch({
         type: "ui/error",
@@ -655,14 +666,21 @@ export function EditorPage() {
           >
             {state.ui.exporting ? t("書き出し中…", "Exporting…") : t("端末に保存", "Save")}
           </button>
-          <button
-            type="button"
-            className={toolBtn + " bg-accent hover:bg-accent-strong text-accent-ink"}
-            disabled={!canExport}
-            onClick={onPost}
-          >
-            {t("投稿へ", "Continue to post")}
-          </button>
+          {host.destinations.map((destination) => (
+            <button
+              key={destination.id}
+              type="button"
+              className={
+                destination.primary
+                  ? toolBtn + " bg-accent hover:bg-accent-strong text-accent-ink"
+                  : toolBtn
+              }
+              disabled={!canExport}
+              onClick={() => void onSend(destination)}
+            >
+              {t(destination.label.ja, destination.label.en)}
+            </button>
+          ))}
         </div>
         {state.ui.error && (
           <p

@@ -2,7 +2,7 @@ import { PORTRAIT_PRESETS, type PortraitPresetId } from "@lumorphia/editor-recip
 import type { FaceResult } from "../inference/face-masks.ts";
 import type { InferenceStatus } from "../state.ts";
 import { Slider } from "./Slider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type Props = {
   faces: readonly FaceResult[] | null;
@@ -30,7 +30,7 @@ const btn =
  * 中身は部分補正 5 件 (背景・人物・顔・瞳 ×2) で、部分補正タブで個別に直せる
  */
 export function PortraitPanel(p: Props) {
-  const { t, tx } = useI18n();
+  const { t, tx } = useEditorI18n();
   const busy = p.inference.status !== "idle";
   const faces = p.faces ?? [];
   return (

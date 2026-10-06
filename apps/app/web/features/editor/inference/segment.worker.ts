@@ -5,7 +5,7 @@
  *
  * - 画像 1 枚につき埋め込み (vision encoder) を 1 回 (重い、spike で 2 秒)。使い回す
  * - タップごとにデコード (0.2 秒)。3 段の粒度のマスクを全部 bitmap にして返す (spike で 0 = 全体、1 = 装備、2 = 部品)
- * - モデルと WASM は /models/ (自前ホスト)。HF Hub には行かない
+ * - モデルと WASM はホストが同じオリジンで配る (既定は /models/、model-paths.ts)。HF Hub には行かない
  * - COOP / COEP が無いので SharedArrayBuffer は無く、ORT はシングルスレッド
  *
  * spike (docs/spikes/2026-09-21-auto-select.md) の segmentAnything を移したもの。
@@ -13,13 +13,10 @@
 import type * as TransformersNs from "@huggingface/transformers";
 import type { BitmapMaskV3 } from "@lumorphia/editor-recipe";
 import { toBitmapMask } from "./segment-masks.ts";
-
-export const SAM_MODEL_BASE = "/models/slimsam-77-q8-v1";
-export const ORT_WASM_BASE = "/models/ort-v1/";
-export const SAM_MODEL_ID = "slimsam-77-q8-v1";
+import { modelPaths } from "./model-paths.ts";
 
 export type SegmentRequest =
-  | { id: number; type: "embed"; bitmap: ImageBitmap }
+  | { id: number; type: "embed"; bitmap: ImageBitmap; modelBaseUrl: string }
   | { id: number; type: "segment"; x: number; y: number };
 export type SegmentResponse =
   | { id: number; type: "progress"; loaded: number; total: number }
@@ -50,14 +47,15 @@ let model: SamModel | null = null;
 let processor: SamProcessor | null = null;
 let embedded: { inputs: SamInputs; embeddings: Record<string, unknown> } | null = null;
 
-async function load(onProgress: (loaded: number, total: number) => void) {
+async function load(modelBaseUrl: string, onProgress: (loaded: number, total: number) => void) {
   if (lib && model && processor) return { lib, model, processor };
+  const paths = modelPaths(modelBaseUrl);
   const t = await import("@huggingface/transformers");
   // 自前ホストだけを見る。models/ の下は HF の repo と同じ配置 (config.json, onnx/*.onnx)
   t.env.allowLocalModels = true;
   t.env.allowRemoteModels = false;
-  t.env.localModelPath = "/models/";
-  if (t.env.backends.onnx.wasm) t.env.backends.onnx.wasm.wasmPaths = ORT_WASM_BASE;
+  t.env.localModelPath = paths.samRoot;
+  if (t.env.backends.onnx.wasm) t.env.backends.onnx.wasm.wasmPaths = paths.ortWasm;
   const totals = new Map<string, { loaded: number; total: number }>();
   const progress_callback = (p: {
     status: string;
@@ -75,12 +73,12 @@ async function load(onProgress: (loaded: number, total: number) => void) {
     }
     onProgress(loaded, total);
   };
-  const m = (await t.SamModel.from_pretrained(SAM_MODEL_ID, {
+  const m = (await t.SamModel.from_pretrained(paths.samModelId, {
     dtype: "q8",
     device: "wasm",
     progress_callback,
   })) as unknown as SamModel;
-  const pr = (await t.AutoProcessor.from_pretrained(SAM_MODEL_ID, {
+  const pr = (await t.AutoProcessor.from_pretrained(paths.samModelId, {
     progress_callback,
   })) as unknown as SamProcessor;
   lib = t;
@@ -100,9 +98,10 @@ function rawImageOf(t: Transformers, bitmap: ImageBitmap) {
 
 async function embed(
   bitmap: ImageBitmap,
+  modelBaseUrl: string,
   onProgress: (l: number, t: number) => void,
 ): Promise<number> {
-  const { lib: t, model: m, processor: pr } = await load(onProgress);
+  const { lib: t, model: m, processor: pr } = await load(modelBaseUrl, onProgress);
   const raw = rawImageOf(t, bitmap);
   const t0 = performance.now();
   const inputs = await pr(raw);
@@ -146,7 +145,7 @@ self.onmessage = async (e: MessageEvent<SegmentRequest>) => {
   try {
     if (req.type === "embed") {
       try {
-        const ms = await embed(req.bitmap, (loaded, total) =>
+        const ms = await embed(req.bitmap, req.modelBaseUrl, (loaded, total) =>
           post({ id: req.id, type: "progress", loaded, total }),
         );
         post({ id: req.id, type: "embedded", ms });

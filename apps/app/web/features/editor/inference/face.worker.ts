@@ -9,18 +9,20 @@
  * - 同じ顔 (IoU 0.3 以上) は先に見つかった方 (広い文脈) を残す。切り抜きの縁にかかる顔は捨てる
  * - 3 倍の段は誤検出だけ増えたので入れない
  *
- * 画像も推論もここ (ブラウザ) で完結し、外には送らない。モデルと WASM は /models/ (自前ホスト)。
+ * 画像も推論もここ (ブラウザ) で完結し、外には送らない。モデルと WASM はホストが同じオリジンで配る (既定は /models/、model-paths.ts)。
  */
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import type { FaceResult, NormalizedPoint } from "./face-masks.ts";
+import { modelPaths } from "./model-paths.ts";
 
-export const FACE_MODEL_BASE = "/models/face-landmarker-v1";
 /** 進捗の表示に使う総量の目安 (モデル 3.7 MB + WASM 11 MB)。WASM の取得は MediaPipe の中なので数えられない */
 export const FACE_MODEL_BYTES = 3_758_596 + 11_153_617;
 
 export type FaceRequest = {
   id: number;
   bitmap: ImageBitmap;
+  /** モデルと WASM の置き場所 (model-paths.ts)。最初の 1 回の読み込みで使う */
+  modelBaseUrl: string;
   /** 検出のしきい値。spike の結果は 0.3 */
   confidence?: number;
 };
@@ -95,7 +97,11 @@ async function fetchWithProgress(
   return out;
 }
 
-function load(confidence: number, onProgress: (loaded: number) => void): Promise<FaceLandmarker> {
+function load(
+  modelBaseUrl: string,
+  confidence: number,
+  onProgress: (loaded: number) => void,
+): Promise<FaceLandmarker> {
   if (landmarker) return Promise.resolve(landmarker);
   if (loading) return loading;
   // module worker では MediaPipe が WASM ローダーを self.import ?? import() で読む。dev の Vite は
@@ -103,9 +109,10 @@ function load(confidence: number, onProgress: (loaded: number) => void): Promise
   // しまうので、Vite の書き換えを避けた import を渡す (本番ビルドでは同じ動き)
   (self as unknown as { import?: (url: string) => Promise<unknown> }).import = (url) =>
     import(/* @vite-ignore */ url);
+  const base = modelPaths(modelBaseUrl).face;
   loading = (async () => {
-    const model = await fetchWithProgress(`${FACE_MODEL_BASE}/face_landmarker.task`, onProgress);
-    const vision = await FilesetResolver.forVisionTasks(`${FACE_MODEL_BASE}/wasm`);
+    const model = await fetchWithProgress(`${base}/face_landmarker.task`, onProgress);
+    const vision = await FilesetResolver.forVisionTasks(`${base}/wasm`);
     const lm = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetBuffer: model, delegate: "CPU" },
       runningMode: "IMAGE",
@@ -217,10 +224,10 @@ function detectAll(lm: FaceLandmarker, bitmap: ImageBitmap): FaceResult[] {
 }
 
 self.onmessage = async (e: MessageEvent<FaceRequest>) => {
-  const { id, bitmap, confidence = CONFIDENCE } = e.data;
+  const { id, bitmap, modelBaseUrl, confidence = CONFIDENCE } = e.data;
   const post = (m: FaceResponse) => self.postMessage(m);
   try {
-    const lm = await load(confidence, (loaded) =>
+    const lm = await load(modelBaseUrl, confidence, (loaded) =>
       post({ id, type: "progress", loaded, total: FACE_MODEL_BYTES }),
     );
     const t0 = performance.now();

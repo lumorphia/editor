@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ELLIPSE_MASK, DEFAULT_LOCAL_ADJUSTMENT } from "./index.ts";
-import { adjustLabel, geometryLabel, localAdjustLabel, localAdjustmentsSummary } from "./labels.ts";
+import {
+  adjustLabel,
+  geometryLabel,
+  localAdjustLabel,
+  localAdjustmentsSummary,
+  translateLabel,
+} from "./labels.ts";
 
 describe("operation labels", () => {
   it("補正は項目名と符号付きの値", () => {
@@ -47,5 +53,22 @@ describe("localAdjustmentsSummary (#109)", () => {
 
   it("omits the breakdown when everything is free-form", () => {
     expect(localAdjustmentsSummary([local(null)])).toBe("1 件");
+  });
+});
+
+describe("translateLabel", () => {
+  it("translates editor vocabulary into English", () => {
+    expect(translateLabel("en", "露光量")).toBe("Exposure");
+    expect(translateLabel("en", "瞳強調")).toBe("Enhance eyes");
+    expect(translateLabel("en", "背景ぼかし")).toBe("Background blur");
+    expect(translateLabel("en", "質感")).toBe("Clarity");
+  });
+
+  it("keeps text it does not know as it is", () => {
+    expect(translateLabel("en", "利用者が入力したタイトル")).toBe("利用者が入力したタイトル");
+  });
+
+  it("keeps Japanese as it is", () => {
+    expect(translateLabel("ja", "露光量")).toBe("露光量");
   });
 });

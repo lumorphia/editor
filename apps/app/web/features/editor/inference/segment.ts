@@ -69,14 +69,18 @@ function call<T extends SegmentResponse["type"]>(
 /** 画像の埋め込み。同じ bitmap なら 2 回目以降は何もしない。戻り値は埋め込みに掛かった ms (使い回しは 0) */
 export async function prepareSegmenter(
   bitmap: ImageBitmap,
-  options: { onProgress?: (p: Progress) => void } = {},
+  options: { modelBaseUrl: string; onProgress?: (p: Progress) => void },
 ): Promise<number> {
   if (embeddedFor === bitmap) return 0;
   const copy = await createImageBitmap(bitmap);
-  const res = await call({ type: "embed", bitmap: copy }, "embedded", {
-    onProgress: options.onProgress,
-    transfer: [copy],
-  });
+  const res = await call(
+    { type: "embed", bitmap: copy, modelBaseUrl: options.modelBaseUrl },
+    "embedded",
+    {
+      onProgress: options.onProgress,
+      transfer: [copy],
+    },
+  );
   embeddedFor = bitmap;
   return res.ms;
 }
