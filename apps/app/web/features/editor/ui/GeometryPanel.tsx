@@ -1,6 +1,6 @@
 import { ASPECT_PRESETS, type GeometryV1 } from "@lumorphia/editor-recipe";
 import { Slider } from "./Slider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type Props = {
   geometry: GeometryV1;
@@ -33,7 +33,7 @@ export function GeometryPanel({
   onCropping,
   onAspect,
 }: Props) {
-  const { t } = useI18n();
+  const { t } = useEditorI18n();
   const rotate = (delta: 90 | -90) => {
     const next = (((geometry.rotation + delta) % 360) + 360) % 360;
     onCommit({ rotation: next as GeometryV1["rotation"], crop: null });

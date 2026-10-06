@@ -1,5 +1,5 @@
 import { PRESETS } from "@lumorphia/editor-recipe";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type Props = {
   activeId: string | null;
@@ -7,7 +7,7 @@ type Props = {
 };
 
 export function PresetPanel({ activeId, onApply }: Props) {
-  const { tx } = useI18n();
+  const { tx } = useEditorI18n();
   return (
     <div className="grid grid-cols-2 gap-2">
       {PRESETS.map((p) => {

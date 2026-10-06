@@ -12,7 +12,7 @@ import type { BrushSettings, EditorState, InferenceStatus } from "../state.ts";
 import type { SegmentSelectionKind } from "../inference/auto-select.ts";
 import { SAM_LEVELS } from "../inference/segment-masks.ts";
 import { Slider } from "./Slider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type Props = {
   list: readonly LocalAdjustment[];
@@ -84,7 +84,7 @@ function localName(l: LocalAdjustment, index: number): string {
 
 /** 部分補正のパネル (#109): 一覧、追加 (円形 / ブラシ)、ブラシの設定、プリセット、効果量とスライダー */
 export function LocalPanel(p: Props) {
-  const { t, tx } = useI18n();
+  const { t, tx } = useEditorI18n();
   const selected = p.list.find((l) => l.id === p.selectedId) ?? null;
   const full = p.list.length >= MAX_LOCAL_ADJUSTMENTS;
   const busy = p.inference.status !== "idle";

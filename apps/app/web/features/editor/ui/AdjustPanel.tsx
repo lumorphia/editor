@@ -1,7 +1,7 @@
 import type { AdjustV1 } from "@lumorphia/editor-recipe";
 import { ADJUST_LABELS } from "@lumorphia/editor-recipe/labels";
 import { Slider } from "./Slider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useEditorI18n } from "./EditorI18n.tsx";
 
 type Props = {
   adjust: AdjustV1;
@@ -28,7 +28,7 @@ const ROWS: {
 ];
 
 export function AdjustPanel({ adjust, onPreview, onCommit }: Props) {
-  const { tx } = useI18n();
+  const { tx } = useEditorI18n();
   return (
     <div className="space-y-2">
       {ROWS.map((r) => (
