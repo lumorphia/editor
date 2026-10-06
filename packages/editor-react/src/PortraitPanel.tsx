@@ -1,6 +1,6 @@
 import { PORTRAIT_PRESETS, type PortraitPresetId } from "@lumorphia/editor-recipe";
-import type { FaceResult } from "../inference/face-masks.ts";
-import type { InferenceStatus } from "../state.ts";
+import type { FaceResult } from "@lumorphia/editor-engine";
+import type { InferenceStatus } from "@lumorphia/editor-engine";
 import { Slider } from "./Slider.tsx";
 import { useEditorI18n } from "./EditorI18n.tsx";
 

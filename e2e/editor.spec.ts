@@ -10,7 +10,7 @@ import {
   findPreset,
   type EditRecipe,
 } from "@lumorphia/editor-recipe";
-import { applyAdjust, applyRecipeAt } from "../apps/app/web/features/editor/adjust-math.ts";
+import { applyAdjust, applyRecipeAt } from "@lumorphia/editor-engine/reference";
 import { devLogin } from "./api.ts";
 import { continueToPostForm } from "./helpers.ts";
 

@@ -1,0 +1,24 @@
+{
+  "name": "@lumorphia/editor-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./render": "./src/render/editor-renderer.ts",
+    "./inference/face": "./src/inference/face.ts",
+    "./inference/segment": "./src/inference/segment.ts",
+    "./reference": "./src/adjust-math.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@lumorphia/editor-recipe": "workspace:*",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "idb-keyval": "^6.3.0",
+    "pixi.js": "^8.22.0"
+  }
+}

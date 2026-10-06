@@ -8,9 +8,9 @@ import {
   type LocalPresetId,
 } from "@lumorphia/editor-recipe";
 import { LOCAL_ADJUST_LABELS } from "@lumorphia/editor-recipe/labels";
-import type { BrushSettings, EditorState, InferenceStatus } from "../state.ts";
-import type { SegmentSelectionKind } from "../inference/auto-select.ts";
-import { SAM_LEVELS } from "../inference/segment-masks.ts";
+import type { BrushSettings, EditorState, InferenceStatus } from "@lumorphia/editor-engine";
+import type { SegmentSelectionKind } from "@lumorphia/editor-engine";
+import { SAM_LEVELS } from "@lumorphia/editor-engine";
 import { Slider } from "./Slider.tsx";
 import { useEditorI18n } from "./EditorI18n.tsx";
 

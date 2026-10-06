@@ -1,6 +1,6 @@
 import type { EllipseMaskV2 } from "@lumorphia/editor-recipe";
-import type { Point } from "../mask-math.ts";
-import type { Size } from "../render/geometry.ts";
+import type { Point } from "@lumorphia/editor-engine";
+import type { Size } from "@lumorphia/editor-engine";
 
 export type EllipseHandle = "move" | "rx" | "ry" | "rotate";
 

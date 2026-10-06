@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
 import type { BrushStrokeV2, GeometryV1 } from "@lumorphia/editor-recipe";
-import { simplifyPoints } from "../brush-raster.ts";
-import { canvasToImageUv, type Point } from "../mask-math.ts";
-import type { Size } from "../render/geometry.ts";
-import type { BrushSettings } from "../state.ts";
+import { simplifyPoints } from "@lumorphia/editor-engine";
+import { canvasToImageUv, type Point } from "@lumorphia/editor-engine";
+import type { Size } from "@lumorphia/editor-engine";
+import type { BrushSettings } from "@lumorphia/editor-engine";
 
 type View = { x: number; y: number; width: number; height: number; scale: number };
 

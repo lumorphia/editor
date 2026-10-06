@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo } from "react";
-import { editorTranslator, type EditorLocale, type EditorTranslator } from "../i18n.ts";
+import { editorTranslator, type EditorLocale, type EditorTranslator } from "./i18n.ts";
 
 /** エディタの中だけの i18n。表示言語はホストが渡す (prismtone の I18nProvider には依存しない) */
 const EditorI18nContext = createContext<EditorTranslator | null>(null);

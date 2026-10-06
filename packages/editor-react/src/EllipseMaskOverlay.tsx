@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { EllipseMaskV2, GeometryV1 } from "@lumorphia/editor-recipe";
-import { canvasToImageUv, imageUvToCanvas, type Point } from "../mask-math.ts";
-import { totalRotationDeg, type Size } from "../render/geometry.ts";
+import { canvasToImageUv, imageUvToCanvas, type Point } from "@lumorphia/editor-engine";
+import { totalRotationDeg, type Size } from "@lumorphia/editor-engine";
 import {
   dragEllipse,
   ellipseHandles,

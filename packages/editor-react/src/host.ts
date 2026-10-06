@@ -1,5 +1,5 @@
 import type { EditRecipe } from "@lumorphia/editor-recipe";
-import type { DraftStore } from "./drafts.ts";
+import type { DraftStore } from "@lumorphia/editor-engine";
 import type { EditorLocale } from "./i18n.ts";
 
 /**
