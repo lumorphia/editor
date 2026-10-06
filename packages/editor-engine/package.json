@@ -1,0 +1,53 @@
+{
+  "name": "@lumorphia/editor-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./render": {
+      "source": "./src/render/editor-renderer.ts",
+      "types": "./dist/render/editor-renderer.d.ts",
+      "default": "./dist/render/editor-renderer.js"
+    },
+    "./inference/face": {
+      "source": "./src/inference/face.ts",
+      "types": "./dist/inference/face.d.ts",
+      "default": "./dist/inference/face.js"
+    },
+    "./inference/segment": {
+      "source": "./src/inference/segment.ts",
+      "types": "./dist/inference/segment.d.ts",
+      "default": "./dist/inference/segment.js"
+    },
+    "./reference": {
+      "source": "./src/adjust-math.ts",
+      "types": "./dist/adjust-math.d.ts",
+      "default": "./dist/adjust-math.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/finish-dist.ts && tsc -p tsconfig.bin.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@lumorphia/editor-recipe": "workspace:*",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "idb-keyval": "^6.3.0",
+    "pixi.js": "^8.22.0"
+  },
+  "bin": {
+    "editor-models": "./dist/bin/editor-models.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ]
+}
